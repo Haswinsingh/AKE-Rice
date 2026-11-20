@@ -3,9 +3,25 @@ const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const SEED_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = isVercel ? '/tmp/ake_data' : SEED_DIR;
+
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    // Pre-populate /tmp from bundled seed files on serverless
+    if (isVercel && fs.existsSync(SEED_DIR)) {
+      const files = fs.readdirSync(SEED_DIR);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          fs.copyFileSync(path.join(SEED_DIR, file), path.join(DATA_DIR, file));
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[DataStore Init Notice]:', e.message);
+  }
 }
 
 function getMongooseConnected() {

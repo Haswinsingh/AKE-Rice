@@ -39,6 +39,7 @@ const connectDB = async () => {
       connectTimeoutMS: 8000,
       maxPoolSize: 10,
       socketTimeoutMS: 30000,
+      dbName: 'ake_rice_db'
     };
 
     cached.promise = mongoose.connect(uri, opts)
