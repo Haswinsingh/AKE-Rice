@@ -28,29 +28,57 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
+const clientUrl = (process.env.CLIENT_URL || '').trim().replace(/\/$/, '');
+
 const allowedOrigins = [
   'https://ake-ricestore.vercel.app',
   'https://ake-rice.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:5000',
-  process.env.CLIENT_URL
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
+  clientUrl
 ].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+    const cleanOrigin = origin.trim().replace(/\/$/, '');
+
+    // 1. Exact match with configured allowed origins
+    if (allowedOrigins.includes(cleanOrigin)) {
       return callback(null, true);
     }
-    if (/\.vercel\.app$/.test(origin)) {
+
+    // 2. Official Vercel deployment domains and preview branches
+    if (/^https:\/\/ake-ricestore(-[a-z0-9-]+)?\.vercel\.app$/.test(cleanOrigin) ||
+        /^https:\/\/ake-rice(-[a-z0-9-]+)?\.vercel\.app$/.test(cleanOrigin)) {
       return callback(null, true);
     }
-    return callback(null, true);
+
+    // 3. Localhost on any port in development
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(cleanOrigin)) {
+      return callback(null, true);
+    }
+
+    // Reject unknown origin in production
+    return callback(new Error(`CORS blocked: Origin ${origin} not authorized.`));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Token', 'X-Admin-Token', 'X-Customer-Token']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Session-Token',
+    'X-Admin-Token',
+    'X-Customer-Token',
+    'X-Requested-With',
+    'Accept'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  optionsSuccessStatus: 200
 }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '25mb' }));
