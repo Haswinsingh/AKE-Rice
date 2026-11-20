@@ -17,6 +17,13 @@ router.get('/dashboard', requirePermission('analytics'), adminController.getDash
 router.get('/reports', requirePermission('reports'), adminController.getReports);
 router.get('/customers', requirePermission('customers'), adminController.getCustomersRegistry);
 
+// Google Drive Transaction Backup routes (Reports permission required)
+router.get('/drive-backup/status', requirePermission('reports'), adminController.getDriveBackupStatus);
+router.post('/drive-backup/test-connection', requirePermission('reports'), adminController.testDriveConnection);
+router.post('/drive-backup/sync-current-month', requirePermission('reports'), adminController.syncCurrentMonthDriveBackup);
+router.post('/drive-backup/retry-failed', requirePermission('reports'), adminController.retryFailedDriveBackups);
+router.post('/drive-backup/export-historical', requirePermission('reports'), adminController.exportHistoricalDriveBackup);
+
 // Inventory routes
 router.get('/inventory', requirePermission('inventory'), adminController.getInventory);
 router.get('/inventory/transactions', requirePermission('inventory'), adminController.getInventoryTransactions);

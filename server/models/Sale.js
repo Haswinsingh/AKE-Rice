@@ -26,7 +26,19 @@ const saleSchema = new mongoose.Schema({
   date: { type: String, required: true },
   transactionDate: { type: String },
   screenshot: { type: String },
-  notes: { type: String }
+  notes: { type: String },
+  googleDriveExport: {
+    status: {
+      type: String,
+      enum: ['pending', 'exported', 'failed', 'not_configured'],
+      default: 'pending'
+    },
+    fileId: { type: String },
+    fileName: { type: String },
+    exportedAt: { type: Date },
+    error: { type: String },
+    retryCount: { type: Number, default: 0 }
+  }
 }, {
   timestamps: true
 });

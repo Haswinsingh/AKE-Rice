@@ -5,6 +5,7 @@ const Feedback = require('../models/Feedback');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const inventoryService = require('../services/inventoryService');
+const googleDriveService = require('../services/googleDriveService');
 
 /**
  * Get comprehensive analytics for Admin Dashboard
@@ -1171,6 +1172,74 @@ exports.resetAdminPassword = async (req, res) => {
   } catch (error) {
     console.error('[AdminController] resetAdminPassword error:', error);
     return res.status(500).json({ success: false, message: 'Failed to reset admin password', error: error.message });
+  }
+};
+
+/**
+ * Google Drive Backup - Get connection & synchronization status
+ */
+exports.getDriveBackupStatus = async (req, res) => {
+  try {
+    const status = await googleDriveService.getBackupStatus();
+    return res.status(200).json({ success: true, ...status });
+  } catch (error) {
+    console.error('[AdminController] getDriveBackupStatus error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve Google Drive backup status', error: error.message });
+  }
+};
+
+/**
+ * Google Drive Backup - Test connection & service account credentials
+ */
+exports.testDriveConnection = async (req, res) => {
+  try {
+    const result = await googleDriveService.testConnection();
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[AdminController] testDriveConnection error:', error);
+    return res.status(500).json({ success: false, message: 'Google Drive connection test failed', error: error.message });
+  }
+};
+
+/**
+ * Google Drive Backup - Sync current month transactions
+ */
+exports.syncCurrentMonthDriveBackup = async (req, res) => {
+  try {
+    const user = req.user ? req.user.name : 'Admin';
+    const result = await googleDriveService.syncCurrentMonth(user);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[AdminController] syncCurrentMonthDriveBackup error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to sync current month transactions to Drive', error: error.message });
+  }
+};
+
+/**
+ * Google Drive Backup - Retry failed or pending exports
+ */
+exports.retryFailedDriveBackups = async (req, res) => {
+  try {
+    const user = req.user ? req.user.name : 'Admin';
+    const result = await googleDriveService.retryFailedExports(user);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[AdminController] retryFailedDriveBackups error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retry failed exports', error: error.message });
+  }
+};
+
+/**
+ * Google Drive Backup - Export all historical transactions
+ */
+exports.exportHistoricalDriveBackup = async (req, res) => {
+  try {
+    const user = req.user ? req.user.name : 'Admin';
+    const result = await googleDriveService.exportAllHistoricalTransactions(user);
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('[AdminController] exportHistoricalDriveBackup error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to export historical transactions', error: error.message });
   }
 };
 

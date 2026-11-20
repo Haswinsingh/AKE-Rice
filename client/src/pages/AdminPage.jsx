@@ -4,9 +4,9 @@ import {
   BarChart3, ShoppingBag, FileText, Users, UserCheck, FileSpreadsheet, TrendingUp, Award,
   MessageSquare, DollarSign, CheckCircle2, XCircle, 
   Clock, Shield, ShieldAlert, Eye, ZoomIn, Copy, Download, 
-  Printer, Plus, Trash2, Filter, RefreshCw, Send, Search, ExternalLink,
+  Printer, Plus, Trash2, Filter, RefreshCw, Send, Search, ExternalLink, RotateCw,
   Package, Edit2, Check, X, Boxes, AlertTriangle, Key, UserPlus, Lock, Layers, History as HistoryIcon,
-  Settings
+  Settings, Cloud, HardDrive, FileCheck, Database
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { adminService } from '../services/adminService';
@@ -64,6 +64,7 @@ const ALL_NAV_PANELS = [
   { id: 'pos-staff', name: 'Staff Management', icon: UserCheck, permission: 'pos_staff_management' },
   { id: 'pos-reports', name: 'POS Reports & Comparison', icon: FileSpreadsheet, permission: 'pos_reports' },
   { id: 'reports', name: 'Business Reports', icon: FileText, permission: 'reports' },
+  { id: 'drive-backup', name: 'Google Drive Backup', icon: Cloud, permission: 'reports' },
   { id: 'orders', name: 'Store & WhatsApp Orders', icon: ShoppingBag, permission: 'orders' },
   { id: 'customers', name: 'Customer Management', icon: Users, permission: 'customers' },
   { id: 'feedback', name: 'Feedback Management', icon: MessageSquare, permission: 'feedback' },
@@ -241,6 +242,11 @@ export default function AdminPage({ initialPanel }) {
   const [comparisonSortBy, setComparisonSortBy] = useState('sales');
   const [comparisonPeriod, setComparisonPeriod] = useState('month');
 
+  // 12. Google Drive Monthly Excel Backup State
+  const [driveStatus, setDriveStatus] = useState(null);
+  const [loadingDriveStatus, setLoadingDriveStatus] = useState(false);
+  const [driveActionPending, setDriveActionPending] = useState(null); // 'test' | 'sync' | 'retry' | 'historical'
+
   // Guard: Admin role required (strictly redirect pos_staff directly to /pos)
   useEffect(() => {
     if (!authLoading) {
@@ -294,6 +300,7 @@ export default function AdminPage({ initialPanel }) {
         loadPosStaff();
       }
       if (activePanel === 'reports') loadReports();
+      if (activePanel === 'drive-backup') loadDriveStatus();
       if (activePanel === 'orders') loadOrders();
       if (activePanel === 'customers') loadCustomers();
       if (activePanel === 'feedback') loadFeedback();
@@ -369,6 +376,91 @@ export default function AdminPage({ initialPanel }) {
         if (res.success) setOrders(res.orders || []);
       })
       .catch(() => showToast('Failed to load orders', 'error'));
+  };
+
+  const loadDriveStatus = async () => {
+    try {
+      setLoadingDriveStatus(true);
+      const res = await adminService.getDriveBackupStatus();
+      if (res && res.success) {
+        setDriveStatus(res);
+      }
+    } catch (err) {
+      console.error('Failed to load Google Drive status:', err);
+    } finally {
+      setLoadingDriveStatus(false);
+    }
+  };
+
+  const handleTestDriveConnection = async () => {
+    try {
+      setDriveActionPending('test');
+      const res = await adminService.testDriveConnection();
+      if (res && res.connected) {
+        showToast(`Google Drive connected successfully! Root folder: "${res.folderName || 'AKE Rice Records'}"`, 'success');
+      } else {
+        showToast(res.message || 'Google Drive connection test failed', 'error');
+      }
+      await loadDriveStatus();
+    } catch (err) {
+      showToast(err.message || 'Connection test failed', 'error');
+    } finally {
+      setDriveActionPending(null);
+    }
+  };
+
+  const handleSyncCurrentMonthDrive = async () => {
+    try {
+      setDriveActionPending('sync');
+      const res = await adminService.syncCurrentMonthDriveBackup();
+      if (res && res.success) {
+        showToast(`Synced ${res.totalProcessed || 0} transactions for current month to Google Drive!`, 'success');
+      } else {
+        showToast(res.message || 'Sync failed', 'error');
+      }
+      await loadDriveStatus();
+    } catch (err) {
+      showToast(err.message || 'Failed to sync current month to Google Drive', 'error');
+    } finally {
+      setDriveActionPending(null);
+    }
+  };
+
+  const handleRetryFailedDrive = async () => {
+    try {
+      setDriveActionPending('retry');
+      const res = await adminService.retryFailedDriveBackups();
+      if (res && res.success) {
+        showToast(`Retried ${res.totalProcessed || 0} pending/failed transactions.`, 'success');
+      } else {
+        showToast(res.message || 'Retry failed', 'error');
+      }
+      await loadDriveStatus();
+    } catch (err) {
+      showToast(err.message || 'Failed to retry backups', 'error');
+    } finally {
+      setDriveActionPending(null);
+    }
+  };
+
+  const handleExportHistoricalDrive = async () => {
+    if (!window.confirm('Export all historical transactions to Google Drive? This will compile all past online orders and POS sales into monthly Excel workbooks.')) {
+      return;
+    }
+    try {
+      setDriveActionPending('historical');
+      const res = await adminService.exportHistoricalDriveBackup();
+      if (res && res.success) {
+        showToast(`Historical export completed! Processed ${res.totalProcessed || 0} transactions.`, 'success');
+      } else {
+        showToast(res.message || 'Historical export failed', 'error');
+      }
+      await loadDriveStatus();
+    } catch (err) {
+      showToast(err.message || 'Historical export failed', 'error');
+    } finally {
+      setDriveActionPending(null);
+    }
   };
 
   const loadCustomers = () => {
@@ -1225,6 +1317,7 @@ export default function AdminPage({ initialPanel }) {
               }
               if (activePanel === 'orders') loadOrders();
               if (activePanel === 'reports') loadReports();
+              if (activePanel === 'drive-backup') loadDriveStatus();
               if (activePanel === 'customers') loadCustomers();
               if (activePanel === 'feedback') loadFeedback();
               if (activePanel === 'admin-users') loadAdminUsers();
@@ -2485,6 +2578,14 @@ export default function AdminPage({ initialPanel }) {
                   <Printer className="w-4 h-4" />
                   <span>Print</span>
                 </button>
+                <button
+                  onClick={() => setActivePanel('drive-backup')}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-forest-green/10 dark:bg-gold/15 border border-forest-green/30 dark:border-gold/30 text-forest-green dark:text-gold font-bold text-xs uppercase tracking-wider hover:bg-forest-green/20"
+                  title="View Google Drive Monthly Excel Backup"
+                >
+                  <Cloud className="w-4 h-4" />
+                  <span>Google Drive Backup</span>
+                </button>
               </div>
             </div>
 
@@ -2595,6 +2696,441 @@ export default function AdminPage({ initialPanel }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* GOOGLE DRIVE MONTHLY EXCEL BACKUP PANEL */}
+      {/* ========================================================================= */}
+      {activePanel === 'drive-backup' && (
+        <div className="space-y-8 animate-in fade-in">
+          
+          {/* 1. Header Banner & Actions */}
+          <div className="bg-gradient-to-r from-forest-green via-deep-green to-dark-bg p-6 sm:p-8 rounded-3xl border border-gold/40 shadow-xl text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gold/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            
+            <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-gold/20 text-gold-light border border-gold/30">
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>Automated Cloud Storage Backup</span>
+                </div>
+                <h2 className="brand-font text-2xl sm:text-3xl font-extrabold text-gold-light">
+                  Google Drive Monthly Excel Backup
+                </h2>
+                <p className="text-white/80 text-xs sm:text-sm max-w-2xl leading-relaxed">
+                  Every confirmed Online Store Order and Offline POS Sale is consolidated into professional monthly Excel workbooks 
+                  organized by year and month (<code className="bg-black/30 px-1.5 py-0.5 rounded text-gold-light font-mono text-xs">AKE_Rice_Transactions_YYYY_MM.xlsx</code>) with complete financial summaries.
+                </p>
+
+                {/* Connection Status Indicator */}
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  {driveStatus?.configured && driveStatus?.connected ? (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-semibold">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <span>Google Drive Connected & Operational</span>
+                    </div>
+                  ) : !driveStatus?.configured ? (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-semibold">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Credentials Required in Environment Variables</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-300 text-xs font-semibold">
+                      <XCircle className="w-3.5 h-3.5 text-rose-300" />
+                      <span>Connection Error: {driveStatus?.connectionError || 'Unable to authenticate'}</span>
+                    </div>
+                  )}
+
+                  {driveStatus?.folderId && (
+                    <a
+                      href={`https://drive.google.com/drive/folders/${driveStatus.folderId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-gold/20 border border-white/20 text-white/90 text-xs font-medium transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3 text-gold-light" />
+                      <span>Open Drive Folder</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                <button
+                  onClick={handleTestDriveConnection}
+                  disabled={driveActionPending !== null}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-gold/20 border border-white/20 text-white font-semibold text-xs tracking-wider uppercase transition-colors disabled:opacity-50"
+                  title="Verify Service Account JWT credentials and folder write permissions"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${driveActionPending === 'test' ? 'animate-spin' : ''}`} />
+                  <span>{driveActionPending === 'test' ? 'Testing...' : 'Test Connection'}</span>
+                </button>
+
+                <button
+                  onClick={handleSyncCurrentMonthDrive}
+                  disabled={driveActionPending !== null}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gold text-forest-green font-bold text-xs tracking-wider uppercase hover:bg-gold-light transition-all shadow-md disabled:opacity-50"
+                  title="Upsert all transactions for current month into active monthly workbook"
+                >
+                  <Cloud className={`w-3.5 h-3.5 ${driveActionPending === 'sync' ? 'animate-pulse' : ''}`} />
+                  <span>{driveActionPending === 'sync' ? 'Syncing...' : 'Sync This Month'}</span>
+                </button>
+
+                <button
+                  onClick={handleRetryFailedDrive}
+                  disabled={driveActionPending !== null || ((driveStatus?.metrics?.totalFailed || 0) === 0 && (driveStatus?.metrics?.totalPending || 0) === 0)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-gold/20 border border-white/20 text-white font-semibold text-xs tracking-wider uppercase transition-colors disabled:opacity-50"
+                  title="Retry failed or unexported transactions"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${driveActionPending === 'retry' ? 'animate-spin' : ''}`} />
+                  <span>{driveActionPending === 'retry' ? 'Retrying...' : 'Retry Failed'}</span>
+                  {((driveStatus?.metrics?.totalFailed || 0) > 0) && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 font-bold text-white">
+                      {driveStatus.metrics.totalFailed}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleExportHistoricalDrive}
+                  disabled={driveActionPending !== null}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-deep-green/80 hover:bg-forest-green border border-gold/40 text-gold-light font-bold text-xs tracking-wider uppercase transition-colors disabled:opacity-50"
+                  title="Export all database transactions since inception"
+                >
+                  <HardDrive className={`w-3.5 h-3.5 ${driveActionPending === 'historical' ? 'animate-spin' : ''}`} />
+                  <span>{driveActionPending === 'historical' ? 'Exporting...' : 'Export All Historical'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Metrics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            {/* Card 1: Total Consolidated Transactions */}
+            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm space-y-2">
+              <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-bold uppercase tracking-wider">Consolidated Transactions</span>
+                <div className="p-2 rounded-xl bg-forest-green/10 text-forest-green dark:text-gold">
+                  <Database className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-extrabold text-forest-green dark:text-gold-light">
+                {driveStatus?.metrics?.totalTransactions || 0}
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-dark-border">
+                <span>Exported: <strong className="text-forest-green dark:text-gold font-bold">{driveStatus?.metrics?.totalExported || 0}</strong></span>
+                <span>Online: {driveStatus?.metrics?.onlineOrders?.total || 0} | POS: {driveStatus?.metrics?.posSales?.total || 0}</span>
+              </div>
+            </div>
+
+            {/* Card 2: Current Month Activity */}
+            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm space-y-2">
+              <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-bold uppercase tracking-wider">Current Month Workbook</span>
+                <div className="p-2 rounded-xl bg-gold/10 text-gold">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-extrabold text-forest-green dark:text-gold-light">
+                {driveStatus?.metrics?.currentMonth?.total || 0} <span className="text-xs font-normal text-gray-500">entries</span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-dark-border truncate font-mono" title={driveStatus?.metrics?.currentMonth?.fileName}>
+                {driveStatus?.metrics?.currentMonth?.fileName || 'AKE_Rice_Transactions_...xlsx'}
+              </div>
+            </div>
+
+            {/* Card 3: Pending / Retry Queue */}
+            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm space-y-2">
+              <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-bold uppercase tracking-wider">Pending / Retry Queue</span>
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <Clock className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">
+                {(driveStatus?.metrics?.totalPending || 0) + (driveStatus?.metrics?.totalFailed || 0)}
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-dark-border">
+                <span>Failed: <strong className="text-rose-500">{driveStatus?.metrics?.totalFailed || 0}</strong></span>
+                <span>Pending initial: {driveStatus?.metrics?.totalPending || 0}</span>
+              </div>
+            </div>
+
+            {/* Card 4: Monthly Excel Files Found */}
+            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm space-y-2">
+              <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-bold uppercase tracking-wider">Drive Files in Storage</span>
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  <Cloud className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-2xl font-extrabold text-forest-green dark:text-gold-light">
+                {driveStatus?.driveFiles?.length || 0} <span className="text-xs font-normal text-gray-500">files</span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-dark-border">
+                <span>Target: AKE Rice Business Records/</span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* 3. Consolidated Monthly Excel Architecture Explainer */}
+          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
+                  3-Sheet Monthly Excel Workbook Structure
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  All transactions belonging to the same month are automatically grouped into a single monthly workbook with three specialized sheets.
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-gold/15 text-forest-green dark:text-gold border border-gold/30">
+                Asia/Kolkata (IST) Standardized
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+              <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Sheet 1: TRANSACTIONS</span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  <strong>22 standardized columns</strong> consolidating Online Store Orders & Offline POS Sales. Includes Transaction ID (<code className="font-mono text-[10px]">ORD_...</code> / <code className="font-mono text-[10px]">POS_...</code>), date & time, customer, phone, delivery address, line item, quantities, amounts, payment mode, staff identity, and status.
+                </p>
+                <div className="text-[11px] text-gray-500">
+                  ✓ Idempotent upserting (updates existing row without duplicates)
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
+                  <TrendingUp className="w-4 h-4" />
+                  <span>Sheet 2: MONTHLY SUMMARY</span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  Financial KPIs and volume analytics. Total Monthly Revenue, Online Revenue vs POS Offline Revenue, Cash vs UPI collections, total items sold, delivered vs pending orders, and average order value.
+                </p>
+                <div className="text-[11px] text-gray-500">
+                  ✓ Recalculated dynamically on every transaction export
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
+                  <Package className="w-4 h-4" />
+                  <span>Sheet 3: PRODUCT SUMMARY</span>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  Volume and revenue broken down by product variety: <strong>1 KG Retail Pouch</strong> (@ ₹195/kg) and <strong>25 KG Wholesale Bulk Bags</strong> (@ ₹185/kg). Total KG volume sold and transaction counts.
+                </p>
+                <div className="text-[11px] text-gray-500">
+                  ✓ Tracks inventory movement and product popularity
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Google Drive Monthly Files List */}
+          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
+                  Monthly Excel Workbooks in Google Drive
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Workbooks found in your Google Drive organization folder.
+                </p>
+              </div>
+              <button
+                onClick={loadDriveStatus}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gold/30 text-xs font-semibold text-forest-green dark:text-gold hover:bg-gold/10 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingDriveStatus ? 'animate-spin' : ''}`} />
+                <span>Refresh File List</span>
+              </button>
+            </div>
+
+            {loadingDriveStatus ? (
+              <div className="p-8 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-gold" />
+                <span>Checking Google Drive files...</span>
+              </div>
+            ) : (!driveStatus?.driveFiles || driveStatus.driveFiles.length === 0) ? (
+              <div className="p-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-dark-border rounded-2xl">
+                <Cloud className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p className="font-semibold text-gray-600 dark:text-gray-300">No monthly Excel files found in Google Drive yet.</p>
+                <p className="text-gray-400 mt-1">
+                  Click <strong>"Sync This Month"</strong> or <strong>"Export All Historical"</strong> above to generate your first consolidated monthly Excel file.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-dark-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-forest-green/10 dark:bg-gold/10 text-forest-green dark:text-gold uppercase tracking-wider text-[11px] font-bold">
+                    <tr>
+                      <th className="p-3">File Name</th>
+                      <th className="p-3">Folder Path</th>
+                      <th className="p-3">Size</th>
+                      <th className="p-3">Last Modified</th>
+                      <th className="p-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                    {driveStatus.driveFiles.map((f, idx) => (
+                      <tr key={f.id || idx} className="hover:bg-gold/5 transition-colors">
+                        <td className="p-3 font-semibold flex items-center gap-2 text-forest-green dark:text-gold">
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          <span>{f.name}</span>
+                        </td>
+                        <td className="p-3 font-mono text-[11px] text-gray-500">
+                          AKE Rice Business Records / {f.year || 'Root'} /
+                        </td>
+                        <td className="p-3 text-gray-500">
+                          {f.size ? `${(f.size / 1024).toFixed(1)} KB` : 'N/A'}
+                        </td>
+                        <td className="p-3 text-gray-500">
+                          {f.modifiedTime ? new Date(f.modifiedTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}
+                        </td>
+                        <td className="p-3 text-right">
+                          {f.webViewLink ? (
+                            <a
+                              href={f.webViewLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-forest-green/10 hover:bg-forest-green hover:text-white text-forest-green dark:text-gold dark:hover:text-dark-bg font-semibold text-xs transition-colors"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Open in Drive</span>
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 italic">No link</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* 5. Audit & Activity Logs */}
+          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
+                  Recent Backup Operations & Audit Trail
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Chronological execution logs of automated and manual Google Drive operations.
+                </p>
+              </div>
+            </div>
+
+            {(!driveStatus?.logs || driveStatus.logs.length === 0) ? (
+              <div className="p-6 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-dark-border rounded-2xl">
+                No backup operation logs recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-dark-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-forest-green/10 dark:bg-gold/10 text-forest-green dark:text-gold uppercase tracking-wider text-[11px] font-bold">
+                    <tr>
+                      <th className="p-3">Time (IST)</th>
+                      <th className="p-3">Action</th>
+                      <th className="p-3">Type</th>
+                      <th className="p-3">Records</th>
+                      <th className="p-3">Duration</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                    {driveStatus.logs.map((log, idx) => (
+                      <tr key={log.id || idx} className="hover:bg-gold/5 transition-colors">
+                        <td className="p-3 text-gray-500 font-mono text-[11px] whitespace-nowrap">
+                          {log.createdAt ? new Date(log.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}
+                        </td>
+                        <td className="p-3 font-semibold text-forest-green dark:text-gold uppercase text-[10px] tracking-wider">
+                          {log.action?.replace(/_/g, ' ')}
+                        </td>
+                        <td className="p-3 text-gray-600 dark:text-gray-300">
+                          {log.transactionType || 'Consolidated'}
+                        </td>
+                        <td className="p-3 font-bold text-forest-green dark:text-gold-light">
+                          {log.recordsProcessed || 0}
+                        </td>
+                        <td className="p-3 font-mono text-[11px] text-gray-500">
+                          {log.durationMs ? `${log.durationMs}ms` : '-'}
+                        </td>
+                        <td className="p-3">
+                          {log.status === 'success' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Success</span>
+                            </span>
+                          ) : log.status === 'partial' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Partial</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                              <XCircle className="w-3 h-3" />
+                              <span>Failed</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-gray-500 text-[11px] max-w-xs truncate" title={log.details || log.error}>
+                          {log.details || log.error || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* 6. Setup & Configuration Guidance Card */}
+          <div className="bg-forest-green/5 dark:bg-gold/5 p-6 rounded-3xl border border-forest-green/20 dark:border-gold/20 space-y-4">
+            <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-base">
+              <Shield className="w-5 h-5" />
+              <span>Google Cloud & Vercel Environment Configuration</span>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+              To enable automatic Google Drive backup in production, configure the following three backend environment variables in your Vercel Project Settings:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono text-xs">
+              <div className="p-3 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                <span className="text-[10px] text-gray-400 block">SERVICE ACCOUNT EMAIL</span>
+                <span className="font-bold text-forest-green dark:text-gold">GOOGLE_SERVICE_ACCOUNT_EMAIL</span>
+                <p className="text-[10px] text-gray-500 mt-1 font-sans">e.g. ake-rice-backup@...iam.gserviceaccount.com</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                <span className="text-[10px] text-gray-400 block">PRIVATE KEY (PEM)</span>
+                <span className="font-bold text-forest-green dark:text-gold">GOOGLE_PRIVATE_KEY</span>
+                <p className="text-[10px] text-gray-500 mt-1 font-sans">-----BEGIN PRIVATE KEY----- ... (new lines handled automatically)</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                <span className="text-[10px] text-gray-400 block">ROOT FOLDER ID</span>
+                <span className="font-bold text-forest-green dark:text-gold">GOOGLE_DRIVE_FOLDER_ID</span>
+                <p className="text-[10px] text-gray-500 mt-1 font-sans">Google Drive Folder ID with "Editor" permission shared to the service account</p>
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>
+                <strong>Important:</strong> After creating a folder named "AKE Rice Business Records" in your Google Drive, share it with your Service Account Email and grant <strong>Editor</strong> permission so it can create year folders and monthly Excel files.
+              </span>
             </div>
           </div>
 

@@ -4,6 +4,7 @@ const Product = require('../models/Product');
 const { generateNextOrderId } = require('../services/orderIdService');
 const { generateWaTextForOrder, getWhatsAppUrl } = require('../services/whatsappService');
 const inventoryService = require('../services/inventoryService');
+const googleDriveService = require('../services/googleDriveService');
 
 /**
  * Place a new order
@@ -153,6 +154,11 @@ exports.createOrder = async (req, res) => {
     // Automatically deduct inventory stock and record audit transaction
     await inventoryService.deductStockForOrder(newOrder, customerUser ? customerUser.name : name.trim());
 
+    // Trigger automatic Google Drive monthly Excel backup asynchronously (non-blocking)
+    googleDriveService.exportOrder(newOrder).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to auto-export order to Drive:', err.message);
+    });
+
     // Generate WhatsApp text and URL
     const whatsappText = generateWaTextForOrder(newOrder);
     const whatsappUrl = getWhatsAppUrl(newOrder);
@@ -288,6 +294,11 @@ exports.updateOrderStatus = async (req, res) => {
       await inventoryService.restoreStockForOrder(order, req.user?.name || 'Admin', note || 'Order status changed to Cancelled');
     }
 
+    // Update transaction in Google Drive monthly Excel backup asynchronously
+    googleDriveService.exportOrder(order).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to update order status in Drive:', err.message);
+    });
+
     return res.status(200).json({
       success: true,
       message: `Order status updated to ${status}`,
@@ -351,6 +362,11 @@ exports.verifyPayment = async (req, res) => {
     if (action === 'verify') {
       await order.save();
     }
+
+    // Update verified/rejected transaction in Google Drive monthly backup asynchronously
+    googleDriveService.exportOrder(order).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to update payment verification in Drive:', err.message);
+    });
 
     return res.status(200).json({
       success: true,

@@ -149,7 +149,14 @@ export const adminService = {
       method: 'POST',
       body: formData
     });
-  }
+  },
+
+  // Google Drive Transaction Backup
+  getDriveBackupStatus: () => apiRequest('/admin/drive-backup/status'),
+  testDriveConnection: () => apiRequest('/admin/drive-backup/test-connection', { method: 'POST' }),
+  syncCurrentMonthDriveBackup: () => apiRequest('/admin/drive-backup/sync-current-month', { method: 'POST' }),
+  retryFailedDriveBackups: () => apiRequest('/admin/drive-backup/retry-failed', { method: 'POST' }),
+  exportHistoricalDriveBackup: () => apiRequest('/admin/drive-backup/export-historical', { method: 'POST' })
 };
 
 export default adminService;

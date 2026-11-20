@@ -1,5 +1,6 @@
 const Sale = require('../models/Sale');
 const inventoryService = require('../services/inventoryService');
+const googleDriveService = require('../services/googleDriveService');
 
 /**
  * Record a new offline POS sale entry (1 KG or 25 KG)
@@ -86,6 +87,11 @@ exports.createSale = async (req, res) => {
     });
 
     await newSale.save();
+
+    // Trigger automatic Google Drive monthly Excel backup asynchronously (non-blocking)
+    googleDriveService.exportSale(newSale).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to auto-export POS sale to Drive:', err.message);
+    });
 
     // Deduct inventory stock for offline POS sale
     if (newSale.status !== 'Cancelled') {
@@ -444,6 +450,11 @@ exports.updateSale = async (req, res) => {
     if (!sale) {
       return res.status(404).json({ success: false, message: 'Sale entry not found' });
     }
+
+    // Update modified POS sale in Google Drive monthly backup asynchronously
+    googleDriveService.exportSale(sale).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to update POS sale in Drive:', err.message);
+    });
     return res.status(200).json({ success: true, message: 'Sale updated', sale });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to update sale', error: error.message });
