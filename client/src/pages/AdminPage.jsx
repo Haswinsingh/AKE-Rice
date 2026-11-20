@@ -42,15 +42,13 @@ function formatProductImage(img) {
 
 const PERMISSION_LIST = [
   { key: 'analytics', label: 'Analytics Overview', desc: 'View store revenue, sales breakdown, conversion rates, and dashboard graphs.' },
-  { key: 'inventory', label: 'Inventory Management', desc: 'Manage rice/paddy warehouse stock, monitor batch inventory, and record manual stock adjustments.' },
-  { key: 'products', label: 'Product Management', desc: 'Add new rice packages, update pricing, change descriptions, and upload product photos.' },
+  { key: 'products', label: 'Product Management', desc: 'Manage product catalog, packaging sizes, rates, availability, warehouse stock, and movement history.' },
   { key: 'sales_pos', label: 'Sales Entry / POS', desc: 'Access offline retail billing (1 KG @ ₹195/kg) and wholesale bulk bag sales (25 KG @ ₹185/kg) with automatic stock deduction.' },
   { key: 'pos_staff_management', label: 'Staff Management', desc: 'Add staff accounts, manage credentials, assign POS permissions, and monitor staff performance.' },
   { key: 'pos_reports', label: 'POS Reports & Metrics', desc: 'View individual POS staff sales reports, date-filtered metrics, and transaction ledgers.' },
   { key: 'pos_reports_all_staff', label: 'All Staff Comparison', desc: 'Access comprehensive multi-staff performance comparison, rankings, and CSV export.' },
   { key: 'reports', label: 'Business Reports', desc: 'Generate date-filtered sales reports, area revenue statements, and export Excel/CSV reports.' },
   { key: 'orders', label: 'Store & WhatsApp Orders', desc: 'Process incoming online store and WhatsApp orders, verify payment screenshots, and update delivery statuses.' },
-  { key: 'customers', label: 'Customer Management', desc: 'Access customer registry, purchase history, delivery addresses, and contact details.' },
   { key: 'feedback', label: 'Feedback Management', desc: 'Moderate customer reviews, approve testimonials for public display, and write management replies.' },
   { key: 'admin_management', label: 'Admin Management', desc: 'View administrator roster, promote customer accounts to admin, and review access logs.' },
   { key: 'settings', label: 'Settings', desc: 'Review mill store operating hours, contact configurations, and delivery fee settings.' }
@@ -58,7 +56,6 @@ const PERMISSION_LIST = [
 
 const ALL_NAV_PANELS = [
   { id: 'analytics', name: 'Analytics Overview', icon: BarChart3, permission: 'analytics' },
-  { id: 'inventory', name: 'Inventory Management', icon: Boxes, permission: 'inventory' },
   { id: 'products', name: 'Product Management', icon: Package, permission: 'products' },
   { id: 'sales-entry', name: 'Sales Entry / POS', icon: DollarSign, permission: 'sales_pos' },
   { id: 'pos-staff', name: 'Staff Management', icon: UserCheck, permission: 'pos_staff_management' },
@@ -66,7 +63,6 @@ const ALL_NAV_PANELS = [
   { id: 'reports', name: 'Business Reports', icon: FileText, permission: 'reports' },
   { id: 'drive-backup', name: 'Google Drive Backup', icon: Cloud, permission: 'reports' },
   { id: 'orders', name: 'Store & WhatsApp Orders', icon: ShoppingBag, permission: 'orders' },
-  { id: 'customers', name: 'Customer Management', icon: Users, permission: 'customers' },
   { id: 'feedback', name: 'Feedback Management', icon: MessageSquare, permission: 'feedback' },
   { id: 'admin-users', name: 'Admin Management', icon: Shield, permission: 'admin_management' },
   { id: 'settings', name: 'Settings', icon: Settings, permission: 'settings' }
@@ -79,8 +75,10 @@ export default function AdminPage({ initialPanel }) {
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
 
-  const queryPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
-  const [activePanel, setActivePanel] = useState(queryPanel || 'analytics');
+  const rawPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
+  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : rawPanel);
+  const [activePanel, setActivePanel] = useState(normalizedPanel || 'analytics');
+  const [productSubTab, setProductSubTab] = useState('catalog'); // 'catalog' | 'stock_history'
   const [lightboxImg, setLightboxImg] = useState(null);
 
   // Granular Permission Management Modal State
@@ -94,6 +92,7 @@ export default function AdminPage({ initialPanel }) {
   // 2. POS Sales Entry Form State
   const [posProduct, setPosProduct] = useState('1 KG Rice'); // '1 KG Rice' or '25 KG Rice'
   const [posShop, setPosShop] = useState('');
+  const [posMobile, setPosMobile] = useState('');
   const [posArea, setPosArea] = useState('');
   const [posDate, setPosDate] = useState(new Date().toISOString().split('T')[0]);
   const [posQty, setPosQty] = useState(1);
@@ -137,12 +136,7 @@ export default function AdminPage({ initialPanel }) {
   const [loadingTestPreview, setLoadingTestPreview] = useState(false);
   const [cleaningTestRecords, setCleaningTestRecords] = useState(false);
 
-  // 5. Customer Registry State
-  const [customers, setCustomers] = useState([]);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [selectedCustomerHistory, setSelectedCustomerHistory] = useState(null);
-
-  // 6. Product Management State
+  // Product Management State
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productModal, setProductModal] = useState(null); // { mode: 'create'|'edit', product: {...} }
@@ -308,7 +302,10 @@ export default function AdminPage({ initialPanel }) {
   useEffect(() => {
     if (isAdmin && isPanelAuthorized(activePanel)) {
       if (activePanel === 'analytics') loadAnalytics();
-      if (activePanel === 'products') loadAdminProducts();
+      if (activePanel === 'products' || activePanel === 'inventory') {
+        loadAdminProducts();
+        loadInventory();
+      }
       if (activePanel === 'sales-entry') loadRecentSales();
       if (activePanel === 'pos-staff') loadPosStaff();
       if (activePanel === 'pos-reports') {
@@ -322,9 +319,7 @@ export default function AdminPage({ initialPanel }) {
         loadOrders();
         loadTrashOrders();
       }
-      if (activePanel === 'customers') loadCustomers();
       if (activePanel === 'feedback') loadFeedback();
-      if (activePanel === 'inventory') loadInventory();
       if (activePanel === 'admin-users') loadAdminUsers();
     }
   }, [isAdmin, activePanel, isSuperAdmin, user?.permissions]);
@@ -610,32 +605,6 @@ export default function AdminPage({ initialPanel }) {
     }
   };
 
-  const loadCustomers = () => {
-    adminService.getCustomers()
-      .then(res => {
-        if (res.success) setCustomers(res.registry || []);
-      })
-      .catch(() => {});
-  };
-
-  const loadAdminProducts = () => {
-    setLoadingProducts(true);
-    productService.getAllProductsAdmin()
-      .then(res => {
-        if (res.success) setProducts(res.products || []);
-      })
-      .catch(() => showToast('Failed to load products', 'error'))
-      .finally(() => setLoadingProducts(false));
-  };
-
-  const loadFeedback = () => {
-    feedbackService.getAdminFeedback({ status: feedbackFilter })
-      .then(res => {
-        if (res.success) setAdminFeedback(res.reviews || []);
-      })
-      .catch(() => {});
-  };
-
   // Submit POS Sale
   const handlePosSubmit = async (e) => {
     e.preventDefault();
@@ -647,6 +616,10 @@ export default function AdminPage({ initialPanel }) {
     try {
       const payload = {
         product: posProduct,
+        customerName: posShop.trim(),
+        customerMobile: posMobile.trim() || undefined,
+        mobile: posMobile.trim() || undefined,
+        phone: posMobile.trim() || undefined,
         shop: posShop.trim(),
         area: posArea.trim(),
         date: posDate,
@@ -662,6 +635,7 @@ export default function AdminPage({ initialPanel }) {
       if (res.success) {
         showToast(res.message, 'success');
         setPosShop('');
+        setPosMobile('');
         setPosArea('');
         setPosQty(1);
         setPosScreenshot('');
@@ -1454,8 +1428,10 @@ export default function AdminPage({ initialPanel }) {
           <button
             onClick={() => {
               if (activePanel === 'analytics') loadAnalytics();
-              if (activePanel === 'inventory') loadInventory();
-              if (activePanel === 'products') loadAdminProducts();
+              if (activePanel === 'products' || activePanel === 'inventory') {
+                loadAdminProducts();
+                loadInventory();
+              }
               if (activePanel === 'sales-entry') loadRecentSales();
               if (activePanel === 'pos-staff') loadPosStaff();
               if (activePanel === 'pos-reports') {
@@ -1468,7 +1444,6 @@ export default function AdminPage({ initialPanel }) {
               }
               if (activePanel === 'reports') loadReports();
               if (activePanel === 'drive-backup') loadDriveStatus();
-              if (activePanel === 'customers') loadCustomers();
               if (activePanel === 'feedback') loadFeedback();
               if (activePanel === 'admin-users') loadAdminUsers();
               if (activePanel === 'settings') showToast('Settings preferences loaded', 'info');
@@ -1775,7 +1750,7 @@ export default function AdminPage({ initialPanel }) {
             </div>
 
             <form onSubmit={handlePosSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
                     Customer / Shop Name *
@@ -1786,6 +1761,19 @@ export default function AdminPage({ initialPanel }) {
                     placeholder="e.g. Annapoorna Biryani House"
                     value={posShop}
                     onChange={(e) => setPosShop(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                    Customer Mobile (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 9876543210"
+                    value={posMobile}
+                    onChange={(e) => setPosMobile(e.target.value)}
                     className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
                   />
                 </div>
@@ -4051,227 +4039,523 @@ export default function AdminPage({ initialPanel }) {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 5. CUSTOMER REGISTRY PANEL */}
-      {/* ========================================================================= */}
-      {activePanel === 'customers' && (
-        <div className="space-y-6 animate-in fade-in">
-          
-          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md flex items-center justify-between">
-            <div>
-              <h3 className="brand-font text-xl font-bold text-forest-green dark:text-gold-light">
-                Customer & Retail Registry ({customers.length})
-              </h3>
-              <p className="text-xs text-gray-500">Aggregated directory of home buyers and wholesale merchant shops.</p>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green text-white font-bold">
-                  <tr>
-                    <th className="p-3">Customer / Shop</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">Mobile</th>
-                    <th className="p-3">Area</th>
-                    <th className="p-3">Total Orders</th>
-                    <th className="p-3">Total KG</th>
-                    <th className="p-3">Total Spend</th>
-                    <th className="p-3">Last Order</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {customers.map((c, idx) => (
-                    <tr key={idx} className="hover:bg-gold/5">
-                      <td className="p-3 font-semibold text-gray-900 dark:text-gray-100">{c.name}</td>
-                      <td className="p-3">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          c.type.includes('Merchant') ? 'bg-purple-100 text-purple-700' : 'bg-emerald/15 text-emerald'
-                        }`}>
-                          {c.type}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono">{c.mobile}</td>
-                      <td className="p-3">{c.area}</td>
-                      <td className="p-3 font-bold">{c.totalOrders}</td>
-                      <td className="p-3 font-semibold">{c.totalQtyKg} KG</td>
-                      <td className="p-3 font-bold text-forest-green dark:text-gold">₹{c.totalSpent?.toLocaleString('en-IN')}</td>
-                      <td className="p-3 text-gray-400">{c.lastOrderDate}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* PRODUCT MANAGEMENT PANEL */}
+            {/* ========================================================================= */}
+      {/* UNIFIED PRODUCT MANAGEMENT PANEL */}
       {/* ========================================================================= */}
       {activePanel === 'products' && (
         <div className="space-y-8 animate-in fade-in">
           
-          {/* Header & Quick Action */}
+          {/* Header & Quick Actions */}
           <div className="bg-white dark:bg-dark-card p-6 sm:p-8 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="space-y-1 text-center sm:text-left">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-forest-green/10 text-forest-green dark:text-gold text-xs font-bold uppercase tracking-wider">
+                <Package className="w-3.5 h-3.5" />
+                <span>Unified Product & Stock Control</span>
+              </div>
               <h3 className="brand-font text-2xl font-bold text-forest-green dark:text-gold-light">
-                Dynamic Product Management
+                Product Management
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Configure prices, package sizes, stock, images, and live storefront availability.
+                Single unified control for product varieties, packaging sizes, rates, availability, warehouse stock levels, and transaction movement history.
               </p>
             </div>
 
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3">
+              <button
+                onClick={() => handleOpenProductModal(null)}
+                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
+              >
+                <Plus className="w-4 h-4 text-gold" />
+                <span>Add New Product</span>
+              </button>
+
+              <button
+                onClick={() => handleOpenAdjustModal(inventoryProducts[0] || products[0] || { name: '1 KG Rice', id: '1kg' })}
+                className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gold/20 hover:bg-gold/30 text-forest-green dark:text-gold font-bold text-xs uppercase tracking-wider border border-gold/40 shadow-sm transition-all"
+              >
+                <Boxes className="w-4 h-4" />
+                <span>Adjust Stock</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  loadAdminProducts();
+                  loadInventory();
+                }}
+                disabled={loadingProducts || loadingInventory}
+                className="p-3 rounded-2xl bg-gray-100 hover:bg-gray-200 dark:bg-dark-bg text-gray-600 dark:text-gray-300 transition-colors"
+                title="Refresh Product & Inventory Data"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingProducts || loadingInventory ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-tab Navigation */}
+          <div className="flex items-center gap-2 border-b border-gray-200 dark:border-dark-border pb-2">
             <button
-              onClick={() => handleOpenProductModal(null)}
-              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
+              type="button"
+              onClick={() => setProductSubTab('catalog')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs transition-all ${
+                productSubTab === 'catalog'
+                  ? 'bg-forest-green text-gold-light shadow-md'
+                  : 'bg-white dark:bg-dark-card text-gray-600 dark:text-gray-300 hover:bg-gold/10'
+              }`}
             >
-              <Plus className="w-4 h-4 text-gold" />
-              <span>Add New Product</span>
+              <Package className="w-4 h-4 text-gold" />
+              <span>Product Catalog & Pricing ({products.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setProductSubTab('stock_history')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs transition-all ${
+                productSubTab === 'stock_history'
+                  ? 'bg-forest-green text-gold-light shadow-md'
+                  : 'bg-white dark:bg-dark-card text-gray-600 dark:text-gray-300 hover:bg-gold/10'
+              }`}
+            >
+              <Boxes className="w-4 h-4 text-gold" />
+              <span>Stock Control & Movement History ({inventoryTransactions.length})</span>
             </button>
           </div>
 
-          {/* Product Overview KPI Pills */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/20 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Total Products</span>
-                <strong className="block text-2xl font-black text-forest-green dark:text-gold-light">{products.length}</strong>
-              </div>
-              <div className="p-3 rounded-xl bg-forest-green/10 text-forest-green dark:text-gold">
-                <Package className="w-6 h-6" />
-              </div>
-            </div>
+          {/* TAB 1: PRODUCT CATALOG & PRICING */}
+          {productSubTab === 'catalog' && (
+            <div className="space-y-6">
+              {/* Product Overview KPI Pills */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/20 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Total Products</span>
+                    <strong className="block text-2xl font-black text-forest-green dark:text-gold-light">{products.length}</strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-forest-green/10 text-forest-green dark:text-gold">
+                    <Package className="w-6 h-6" />
+                  </div>
+                </div>
 
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-emerald/20 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-emerald font-bold uppercase tracking-wider">Active on Storefront</span>
-                <strong className="block text-2xl font-black text-emerald">
-                  {products.filter(p => p.status === 'Active' || p.isAvailable).length}
-                </strong>
-              </div>
-              <div className="p-3 rounded-xl bg-emerald/10 text-emerald">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-            </div>
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-emerald/20 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-emerald font-bold uppercase tracking-wider">Active on Storefront</span>
+                    <strong className="block text-2xl font-black text-emerald">
+                      {products.filter(p => p.status === 'Active' || p.isAvailable).length}
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald/10 text-emerald">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                </div>
 
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gray-200 dark:border-dark-border shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Inactive / Hidden</span>
-                <strong className="block text-2xl font-black text-gray-400">
-                  {products.filter(p => p.status === 'Inactive' || (!p.isAvailable && p.status !== 'Active')).length}
-                </strong>
-              </div>
-              <div className="p-3 rounded-xl bg-gray-100 dark:bg-dark-bg text-gray-500">
-                <XCircle className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-forest-green dark:text-gold font-bold uppercase tracking-wider">Total Available Stock</span>
+                    <strong className="block text-2xl font-black text-forest-green dark:text-gold">
+                      {inventorySummary ? inventorySummary.totalAvailableKg.toLocaleString('en-IN') : products.reduce((acc, p) => acc + (p.stock || 0) * (p.unitWeightKg || 1), 0).toLocaleString('en-IN')} <span className="text-sm font-semibold">KG</span>
+                    </strong>
+                  </div>
+                  <div className="p-3 rounded-xl bg-gold/15 text-gold-dark dark:text-gold">
+                    <Boxes className="w-6 h-6" />
+                  </div>
+                </div>
 
-          {/* Products List / Table */}
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="p-6 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
-              <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
-                Catalog Items ({products.length})
-              </h4>
-              <button
-                onClick={loadAdminProducts}
-                className="text-xs font-bold text-forest-green dark:text-gold hover:underline flex items-center gap-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh List
-              </button>
-            </div>
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-amber/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider">Stock Alerts</span>
+                    <strong className="block text-2xl font-black text-amber-600">
+                      {(inventorySummary?.lowStockCount || 0) + (inventorySummary?.outOfStockCount || 0)} <span className="text-sm font-semibold">Items</span>
+                    </strong>
+                    <span className="text-[11px] text-gray-400 block mt-0.5">
+                      {inventorySummary?.lowStockCount || 0} Low, {inventorySummary?.outOfStockCount || 0} Out
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-amber-100 dark:bg-amber-950/40 text-amber-600">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                </div>
+              </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
-                  <tr>
-                    <th className="p-3.5">Image</th>
-                    <th className="p-3.5">Product Name</th>
-                    <th className="p-3.5">Category</th>
-                    <th className="p-3.5">Package Size</th>
-                    <th className="p-3.5">Price</th>
-                    <th className="p-3.5">Rate / KG</th>
-                    <th className="p-3.5">Stock</th>
-                    <th className="p-3.5">Status</th>
-                    <th className="p-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {products.map(p => {
-                    const isActive = p.status === 'Active' || (p.isAvailable && p.status !== 'Inactive');
-                    return (
-                      <tr key={p.id} className="hover:bg-gold/5 transition-colors">
-                        <td className="p-3.5">
-                          <img
-                            src={formatProductImage(p.image)}
-                            alt={p.name}
-                            className="w-12 h-12 object-cover rounded-xl border border-gold/40 shadow-sm cursor-pointer hover:scale-105 transition-transform"
-                            onClick={() => setLightboxImg(formatProductImage(p.image))}
-                          />
-                        </td>
-                        <td className="p-3.5">
-                          <strong className="block text-sm text-gray-900 dark:text-gray-100 font-bold">{p.name}</strong>
-                          <span className="text-[11px] text-gray-400">{p.tamilName}</span>
-                        </td>
-                        <td className="p-3.5">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-gold/15 text-forest-green dark:text-gold-light border border-gold/25">
-                            {p.category || 'Seeraga Samba'}
-                          </span>
-                        </td>
-                        <td className="p-3.5 font-semibold">{p.packageSize} ({p.unitWeightKg} KG)</td>
-                        <td className="p-3.5">
-                          <strong className="text-sm font-black text-forest-green dark:text-gold">₹{p.price?.toLocaleString('en-IN')}</strong>
-                        </td>
-                        <td className="p-3.5 font-semibold text-gray-600 dark:text-gray-300">₹{p.ratePerKg} / KG</td>
-                        <td className="p-3.5 font-bold">{p.stock} units</td>
-                        <td className="p-3.5">
-                          <button
-                            onClick={() => handleToggleProductStatus(p)}
-                            className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 ${
-                              isActive
-                                ? 'bg-emerald/15 text-emerald border border-emerald/30 hover:bg-emerald/25'
-                                : 'bg-gray-100 text-gray-500 dark:bg-dark-border dark:text-gray-400 border border-gray-300 hover:bg-gray-200'
-                            }`}
-                            title="Click to toggle product status"
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald' : 'bg-gray-400'}`} />
-                            <span>{isActive ? 'Active' : 'Inactive'}</span>
-                          </button>
-                        </td>
-                        <td className="p-3.5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleOpenProductModal(p)}
-                              className="p-1.5 rounded-lg bg-gold/15 text-forest-green dark:text-gold hover:bg-gold/30 transition-colors"
-                              title="Edit Product"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProduct(p)}
-                              className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 transition-colors"
-                              title="Delete Product"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+              {/* Products List / Table */}
+              <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
+                <div className="p-6 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
+                  <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
+                    Catalog Items ({products.length})
+                  </h4>
+                  <button
+                    onClick={() => {
+                      loadAdminProducts();
+                      loadInventory();
+                    }}
+                    className="text-xs font-bold text-forest-green dark:text-gold hover:underline flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Refresh List
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
+                      <tr>
+                        <th className="p-3.5">Image</th>
+                        <th className="p-3.5">Product & Variety</th>
+                        <th className="p-3.5">Category</th>
+                        <th className="p-3.5">Package & Weight</th>
+                        <th className="p-3.5">Price</th>
+                        <th className="p-3.5">Rate / KG</th>
+                        <th className="p-3.5">Stock</th>
+                        <th className="p-3.5">Status</th>
+                        <th className="p-3.5 text-right">Actions</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                      {products.map(p => {
+                        const isActive = p.status === 'Active' || (p.isAvailable && p.status !== 'Inactive');
+                        const matchingInv = inventoryProducts.find(ip => ip.id === p.id);
+                        const displayStockKg = matchingInv?.availableStockKg !== undefined 
+                          ? matchingInv.availableStockKg 
+                          : ((p.stock || 0) * (p.unitWeightKg || 1));
+
+                        return (
+                          <tr key={p.id} className="hover:bg-cream/40 dark:hover:bg-dark-border/40 transition-colors">
+                            <td className="p-3.5">
+                              <img
+                                src={formatProductImage(p.image)}
+                                alt={p.name}
+                                className="w-12 h-12 object-cover rounded-xl border border-gold/20 shadow-sm"
+                                onError={(e) => { e.target.src = '/assets/packet_1kg.jpg'; }}
+                              />
+                            </td>
+                            <td className="p-3.5">
+                              <strong className="font-bold text-forest-green dark:text-gold-light block text-sm">{p.name}</strong>
+                              <span className="text-[11px] text-gray-500 font-tamil block">{p.tamilName}</span>
+                            </td>
+                            <td className="p-3.5">
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gold/15 text-forest-green dark:text-gold">
+                                {p.category || 'Seeraga Samba'}
+                              </span>
+                            </td>
+                            <td className="p-3.5 font-semibold">{p.packageSize} ({p.unitWeightKg} KG)</td>
+                            <td className="p-3.5">
+                              <strong className="text-sm font-black text-forest-green dark:text-gold">₹{p.price?.toLocaleString('en-IN')}</strong>
+                            </td>
+                            <td className="p-3.5 font-semibold text-gray-600 dark:text-gray-300">₹{p.ratePerKg} / KG</td>
+                            <td className="p-3.5 font-bold">
+                              <span className="block">{p.stock} units</span>
+                              <span className="text-[10px] text-gray-400 font-normal">({displayStockKg.toLocaleString('en-IN')} KG)</span>
+                            </td>
+                            <td className="p-3.5">
+                              <button
+                                onClick={() => handleToggleProductStatus(p)}
+                                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+                                  isActive
+                                    ? 'bg-emerald/15 text-emerald border border-emerald/30 hover:bg-emerald/25'
+                                    : 'bg-gray-100 text-gray-500 dark:bg-dark-border dark:text-gray-400 border border-gray-300 hover:bg-gray-200'
+                                }`}
+                                title="Click to toggle product status"
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald' : 'bg-gray-400'}`} />
+                                <span>{isActive ? 'Active' : 'Inactive'}</span>
+                              </button>
+                            </td>
+                            <td className="p-3.5 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleOpenAdjustModal(matchingInv || p)}
+                                  className="p-1.5 rounded-lg bg-emerald/10 text-emerald hover:bg-emerald/20 transition-colors"
+                                  title="Adjust Stock Level"
+                                >
+                                  <Boxes className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleOpenProductModal(p)}
+                                  className="p-1.5 rounded-lg bg-gold/15 text-forest-green dark:text-gold hover:bg-gold/30 transition-colors"
+                                  title="Edit Product"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProduct(p)}
+                                  className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 transition-colors"
+                                  title="Delete Product"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* TAB 2: STOCK CONTROL & MOVEMENT HISTORY */}
+          {productSubTab === 'stock_history' && (
+            <div className="space-y-8">
+              {/* Stock KPI Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider block">
+                      Total Initial Stock
+                    </span>
+                    <strong className="text-2xl font-black text-forest-green dark:text-gold-light">
+                      {inventorySummary ? inventorySummary.totalInitialKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
+                    </strong>
+                    <span className="text-[11px] text-gray-400 block mt-0.5">Catalog base allocation</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-forest-green/10 text-forest-green dark:text-gold">
+                    <Boxes className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-emerald/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wider block">
+                      Available Stock
+                    </span>
+                    <strong className="text-2xl font-black text-emerald">
+                      {inventorySummary ? inventorySummary.totalAvailableKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
+                    </strong>
+                    <span className="text-[11px] text-emerald-600 block mt-0.5">Ready for booking</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-emerald/10 text-emerald">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-forest-green dark:text-gold font-bold uppercase tracking-wider block">
+                      Total Ordered / Sold
+                    </span>
+                    <strong className="text-2xl font-black text-forest-green dark:text-gold">
+                      {inventorySummary ? inventorySummary.totalOrderedKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
+                    </strong>
+                    <span className="text-[11px] text-gray-400 block mt-0.5">Confirmed customer orders</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-gold/15 text-gold-dark dark:text-gold">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-amber/30 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider block">
+                      Stock Status Alerts
+                    </span>
+                    <strong className="text-2xl font-black text-amber-600">
+                      {(inventorySummary?.lowStockCount || 0) + (inventorySummary?.outOfStockCount || 0)} <span className="text-sm font-semibold">Items</span>
+                    </strong>
+                    <span className="text-[11px] text-gray-400 block mt-0.5">
+                      {inventorySummary?.lowStockCount || 0} Low, {inventorySummary?.outOfStockCount || 0} Out
+                    </span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-amber-100 dark:bg-amber-950/40 text-amber-600">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Product Stock Breakdown Table */}
+              <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
+                <div className="p-6 border-b border-gray-100 dark:border-dark-border flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div>
+                    <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
+                      Product Stock Breakdown
+                    </h4>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Dynamic calculations based on confirmed customer orders and administrative stock adjustments.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
+                      <tr>
+                        <th className="p-3.5">Product & Package</th>
+                        <th className="p-3.5 text-center">Unit Weight</th>
+                        <th className="p-3.5 text-right">Initial Stock (KG)</th>
+                        <th className="p-3.5 text-right">Total Ordered (KG)</th>
+                        <th className="p-3.5 text-right">Available Stock (KG)</th>
+                        <th className="p-3.5 text-right">Alert Threshold</th>
+                        <th className="p-3.5 text-center">Stock Status</th>
+                        <th className="p-3.5 text-center">Store Visibility</th>
+                        <th className="p-3.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                      {inventoryProducts.length > 0 ? (
+                        inventoryProducts.map(p => {
+                          const avail = p.availableStockKg !== undefined ? p.availableStockKg : 5000;
+                          const initial = p.initialStockKg !== undefined ? p.initialStockKg : 5000;
+                          const ordered = p.totalOrderedKg !== undefined ? p.totalOrderedKg : 0;
+                          const isLow = p.stockStatus === 'LOW STOCK';
+                          const isOut = p.stockStatus === 'OUT OF STOCK';
+
+                          return (
+                            <tr key={p.id} className="hover:bg-cream/40 dark:hover:bg-dark-border/40 transition-colors">
+                              <td className="p-3.5">
+                                <strong className="font-bold text-forest-green dark:text-gold-light block text-sm">{p.name}</strong>
+                                <span className="text-[11px] text-gray-400 font-mono">ID: {p.id}</span>
+                              </td>
+                              <td className="p-3.5 text-center font-semibold">{p.unitWeightKg} KG</td>
+                              <td className="p-3.5 text-right font-medium">{initial.toLocaleString('en-IN')} KG</td>
+                              <td className="p-3.5 text-right font-semibold text-gray-700 dark:text-gray-300">
+                                {ordered.toLocaleString('en-IN')} KG
+                              </td>
+                              <td className="p-3.5 text-right font-black text-sm">
+                                <span className={isOut ? 'text-red-600' : (isLow ? 'text-amber-600' : 'text-emerald')}>
+                                  {avail.toLocaleString('en-IN')} KG
+                                </span>
+                              </td>
+                              <td className="p-3.5 text-right font-mono text-gray-500">{p.lowStockThresholdKg || 200} KG</td>
+                              <td className="p-3.5 text-center">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  isOut
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400 border border-red-200'
+                                    : isLow
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200'
+                                    : 'bg-emerald/15 text-emerald border border-emerald/30'
+                                }`}>
+                                  {p.stockStatus || 'IN STOCK'}
+                                </span>
+                              </td>
+                              <td className="p-3.5 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  p.isAvailable !== false
+                                    ? 'bg-emerald/10 text-emerald'
+                                    : 'bg-gray-100 text-gray-500 dark:bg-dark-border'
+                                }`}>
+                                  {p.isAvailable !== false ? 'Live' : 'Hidden'}
+                                </span>
+                              </td>
+                              <td className="p-3.5 text-right">
+                                <button
+                                  onClick={() => handleOpenAdjustModal(p)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-forest-green hover:bg-deep-green text-gold-light text-xs font-bold transition-all shadow-sm"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  <span>Adjust</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="9" className="p-8 text-center text-gray-400 font-medium">
+                            No product stock records loaded.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Real-Time Inventory Transaction Audit Logs */}
+              <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
+                <div className="p-6 border-b border-gray-100 dark:border-dark-border flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <HistoryIcon className="w-4 h-4 text-gold-dark dark:text-gold" />
+                      <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
+                        Real-Time Stock Movement & Transaction Audit Logs
+                      </h4>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Every order deduction, cancellation restoration, and administrative stock entry is permanently recorded.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-gray-100 dark:bg-dark-bg text-gray-600 dark:text-gray-300">
+                    {inventoryTransactions.length} Audit Entries
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
+                      <tr>
+                        <th className="p-3.5">Txn ID</th>
+                        <th className="p-3.5">Date & Time</th>
+                        <th className="p-3.5">Type</th>
+                        <th className="p-3.5">Product</th>
+                        <th className="p-3.5 text-right">Quantity (KG)</th>
+                        <th className="p-3.5 text-center">Stock Audit</th>
+                        <th className="p-3.5">Details / Order Reference</th>
+                        <th className="p-3.5">Logged By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                      {inventoryTransactions.length > 0 ? (
+                        inventoryTransactions.map(txn => {
+                          const isDeduction = txn.type === 'Order Deduction' || txn.type === 'POS Sale Deduction';
+                          const isRestoration = txn.type === 'Stock Restoration';
+
+                          return (
+                            <tr key={txn.id || txn._id} className="hover:bg-cream/40 dark:hover:bg-dark-border/40 transition-colors">
+                              <td className="p-3.5 font-mono text-[11px] text-gray-500">
+                                {txn.id}
+                              </td>
+                              <td className="p-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                                <span className="block font-semibold">{txn.date || (txn.createdAt ? new Date(txn.createdAt).toISOString().split('T')[0] : '')}</span>
+                                <span className="text-[10px] text-gray-400">{txn.time || ''}</span>
+                              </td>
+                              <td className="p-3.5">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  isDeduction 
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                    : isRestoration
+                                    ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                    : 'bg-gold/20 text-forest-green dark:text-gold border border-gold/30'
+                                }`}>
+                                  {txn.type}
+                                </span>
+                              </td>
+                              <td className="p-3.5 font-bold text-forest-green dark:text-gold-light">
+                                {txn.productName}
+                              </td>
+                              <td className="p-3.5 text-right font-black">
+                                <span className={isDeduction ? 'text-red-600' : 'text-emerald'}>
+                                  {isDeduction ? `-${txn.qtyKg}` : `+${txn.qtyKg}`} KG
+                                </span>
+                              </td>
+                              <td className="p-3.5 text-center font-mono text-[11px]">
+                                <span className="text-gray-400">{txn.stockBefore} KG</span>
+                                <span className="mx-1 text-gray-300">→</span>
+                                <strong className="text-gray-800 dark:text-gray-100">{txn.stockAfter} KG</strong>
+                              </td>
+                              <td className="p-3.5 text-gray-700 dark:text-gray-300 max-w-xs truncate" title={txn.note}>
+                                {txn.note}
+                              </td>
+                              <td className="p-3.5 text-gray-500 font-medium">
+                                {txn.performedBy || 'System'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="8" className="p-8 text-center text-gray-400 font-medium">
+                            No inventory transactions recorded yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       )}
 
-      {/* ========================================================================= */}
+{/* ========================================================================= */}
       {/* PRODUCT CREATE / EDIT MODAL */}
       {/* ========================================================================= */}
       {productModal && (
@@ -4655,319 +4939,6 @@ export default function AdminPage({ initialPanel }) {
       )}
 
       {/* ========================================================================= */}
-      {/* AUTOMATIC INVENTORY MANAGEMENT PANEL */}
-      {/* ========================================================================= */}
-      {activePanel === 'inventory' && (
-        <div className="space-y-8 animate-in fade-in">
-          
-          {/* Header & Actions */}
-          <div className="bg-white dark:bg-dark-card p-6 sm:p-8 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-1 text-center sm:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-forest-green/10 text-forest-green dark:text-gold text-xs font-bold uppercase tracking-wider">
-                <Boxes className="w-3.5 h-3.5" />
-                <span>Automatic Inventory Control</span>
-              </div>
-              <h3 className="brand-font text-2xl font-bold text-forest-green dark:text-gold-light">
-                Stock & Inventory Management
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Formula: Available Stock = Initial Stock - Total Confirmed Order Quantity. Live KG tracking with automatic order deduction and cancellation restoration.
-              </p>
-            </div>
-
-            <button
-              onClick={loadInventory}
-              disabled={loadingInventory}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs shadow-md transition-all"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingInventory ? 'animate-spin' : ''}`} />
-              <span>Refresh Inventory</span>
-            </button>
-          </div>
-
-          {/* KPI Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider block">
-                  Total Initial Stock
-                </span>
-                <strong className="text-2xl font-black text-forest-green dark:text-gold-light">
-                  {inventorySummary ? inventorySummary.totalInitialKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
-                </strong>
-                <span className="text-[11px] text-gray-400 block mt-0.5">Catalog base allocation</span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-forest-green/10 text-forest-green dark:text-gold">
-                <Boxes className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-emerald/30 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wider block">
-                  Available Stock
-                </span>
-                <strong className="text-2xl font-black text-emerald">
-                  {inventorySummary ? inventorySummary.totalAvailableKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
-                </strong>
-                <span className="text-[11px] text-emerald-600 block mt-0.5">Ready for booking</span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-emerald/10 text-emerald">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-forest-green dark:text-gold font-bold uppercase tracking-wider block">
-                  Total Ordered / Sold
-                </span>
-                <strong className="text-2xl font-black text-forest-green dark:text-gold">
-                  {inventorySummary ? inventorySummary.totalOrderedKg.toLocaleString('en-IN') : '0'} <span className="text-sm font-semibold">KG</span>
-                </strong>
-                <span className="text-[11px] text-gray-400 block mt-0.5">Confirmed customer orders</span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-gold/15 text-gold-dark dark:text-gold">
-                <ShoppingBag className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-amber/30 shadow-sm flex items-center justify-between">
-              <div>
-                <span className="text-xs text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider block">
-                  Stock Status Alerts
-                </span>
-                <strong className="text-2xl font-black text-amber-600">
-                  {(inventorySummary?.lowStockCount || 0) + (inventorySummary?.outOfStockCount || 0)} <span className="text-sm font-semibold">Items</span>
-                </strong>
-                <span className="text-[11px] text-gray-400 block mt-0.5">
-                  {inventorySummary?.lowStockCount || 0} Low, {inventorySummary?.outOfStockCount || 0} Out
-                </span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-amber-100 dark:bg-amber-950/40 text-amber-600">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-            </div>
-
-          </div>
-
-          {/* Product Stock Breakdown Table */}
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="p-6 border-b border-gray-100 dark:border-dark-border flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div>
-                <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
-                  Product Inventory Breakdown
-                </h4>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Dynamic calculations based on confirmed customer orders and admin stock inputs.
-                </p>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
-                  <tr>
-                    <th className="p-3.5">Product & Package</th>
-                    <th className="p-3.5 text-center">Unit Weight</th>
-                    <th className="p-3.5 text-right">Initial Stock (KG)</th>
-                    <th className="p-3.5 text-right">Total Ordered (KG)</th>
-                    <th className="p-3.5 text-right">Available Stock (KG)</th>
-                    <th className="p-3.5 text-right">Alert Threshold</th>
-                    <th className="p-3.5 text-center">Stock Status</th>
-                    <th className="p-3.5 text-center">Store Visibility</th>
-                    <th className="p-3.5 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {inventoryProducts.length > 0 ? (
-                    inventoryProducts.map(p => {
-                      const avail = p.availableStockKg !== undefined ? p.availableStockKg : 5000;
-                      const initial = p.initialStockKg !== undefined ? p.initialStockKg : 5000;
-                      const ordered = p.totalOrderedKg !== undefined ? p.totalOrderedKg : 0;
-                      const isLow = p.stockStatus === 'LOW STOCK';
-                      const isOut = p.stockStatus === 'OUT OF STOCK';
-
-                      return (
-                        <tr key={p.id} className="hover:bg-cream/40 dark:hover:bg-dark-border/40 transition-colors">
-                          <td className="p-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <img
-                                src={formatProductImage(p.image)}
-                                alt={p.name}
-                                className="w-9 h-9 rounded-lg object-cover border border-gold/30"
-                              />
-                              <div>
-                                <strong className="font-bold text-forest-green dark:text-gold-light block text-sm">{p.name}</strong>
-                                <span className="text-[11px] text-gray-400">{p.packageSize} • ₹{p.price}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-3.5 text-center font-medium text-gray-600 dark:text-gray-300">
-                            {p.unitWeightKg || 1} KG
-                          </td>
-                          <td className="p-3.5 text-right font-bold text-gray-700 dark:text-gray-200">
-                            {initial.toLocaleString('en-IN')} KG
-                          </td>
-                          <td className="p-3.5 text-right font-bold text-forest-green dark:text-gold">
-                            {ordered.toLocaleString('en-IN')} KG
-                          </td>
-                          <td className="p-3.5 text-right">
-                            <strong className={`text-sm font-black ${
-                              isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-emerald'
-                            }`}>
-                              {avail.toLocaleString('en-IN')} KG
-                            </strong>
-                          </td>
-                          <td className="p-3.5 text-right text-gray-500 font-medium">
-                            {p.lowStockThresholdKg || 200} KG
-                          </td>
-                          <td className="p-3.5 text-center">
-                            {isOut ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
-                                <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-                                OUT OF STOCK
-                              </span>
-                            ) : isLow ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-                                LOW STOCK
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald/10 text-emerald border border-emerald/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald" />
-                                IN STOCK
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3.5 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              p.status === 'Active' ? 'bg-emerald/10 text-emerald' : 'bg-gray-100 text-gray-400'
-                            }`}>
-                              {p.status || 'Active'}
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-right">
-                            <button
-                              onClick={() => handleOpenAdjustModal(p)}
-                              className="px-3 py-1.5 rounded-xl bg-forest-green/10 hover:bg-forest-green hover:text-white text-forest-green dark:text-gold dark:hover:bg-gold dark:hover:text-forest-green font-bold text-[11px] transition-colors"
-                            >
-                              Adjust Stock
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="9" className="p-8 text-center text-gray-400 font-medium">
-                        {loadingInventory ? 'Loading inventory data...' : 'No products found.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Real-time Inventory Audit Transaction Logs Table */}
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="p-6 border-b border-gray-100 dark:border-dark-border flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <HistoryIcon className="w-4 h-4 text-gold-dark dark:text-gold" />
-                  <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
-                    Real-Time Inventory Transaction Audit Logs
-                  </h4>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Every order deduction, cancellation restoration, and administrative stock entry is permanently recorded.
-                </p>
-              </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-gray-100 dark:bg-dark-bg text-gray-600 dark:text-gray-300">
-                {inventoryTransactions.length} Audit Entries
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
-                  <tr>
-                    <th className="p-3.5">Txn ID</th>
-                    <th className="p-3.5">Date & Time</th>
-                    <th className="p-3.5">Type</th>
-                    <th className="p-3.5">Product</th>
-                    <th className="p-3.5 text-right">Quantity (KG)</th>
-                    <th className="p-3.5 text-center">Stock Audit</th>
-                    <th className="p-3.5">Details / Order Reference</th>
-                    <th className="p-3.5">Logged By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {inventoryTransactions.length > 0 ? (
-                    inventoryTransactions.map(txn => {
-                      const isDeduction = txn.type === 'Order Deduction' || txn.type === 'POS Sale Deduction';
-                      const isRestoration = txn.type === 'Stock Restoration';
-
-                      return (
-                        <tr key={txn.id || txn._id} className="hover:bg-cream/40 dark:hover:bg-dark-border/40 transition-colors">
-                          <td className="p-3.5 font-mono text-[11px] text-gray-500">
-                            {txn.id}
-                          </td>
-                          <td className="p-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                            <span className="block font-semibold">{txn.date || new Date(txn.createdAt).toISOString().split('T')[0]}</span>
-                            <span className="text-[10px] text-gray-400">{txn.time || ''}</span>
-                          </td>
-                          <td className="p-3.5">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              isDeduction 
-                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                                : isRestoration
-                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                                : 'bg-gold/20 text-forest-green dark:text-gold border border-gold/30'
-                            }`}>
-                              {txn.type}
-                            </span>
-                          </td>
-                          <td className="p-3.5 font-bold text-forest-green dark:text-gold-light">
-                            {txn.productName}
-                          </td>
-                          <td className="p-3.5 text-right font-black">
-                            <span className={isDeduction ? 'text-red-600' : 'text-emerald'}>
-                              {isDeduction ? `-${txn.qtyKg}` : `+${txn.qtyKg}`} KG
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-center font-mono text-[11px]">
-                            <span className="text-gray-400">{txn.stockBefore} KG</span>
-                            <span className="mx-1 text-gray-300">→</span>
-                            <strong className="text-gray-800 dark:text-gray-100">{txn.stockAfter} KG</strong>
-                          </td>
-                          <td className="p-3.5 text-gray-700 dark:text-gray-300 max-w-xs truncate" title={txn.note}>
-                            {txn.note}
-                          </td>
-                          <td className="p-3.5 text-gray-500 font-medium">
-                            {txn.performedBy || 'System'}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="8" className="p-8 text-center text-gray-400 font-medium">
-                        No inventory transactions recorded yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
       {/* ADMIN ACCOUNT MANAGEMENT PANEL */}
       {/* ========================================================================= */}
       {activePanel === 'admin-users' && (
@@ -5130,17 +5101,18 @@ export default function AdminPage({ initialPanel }) {
                               <button
                                 onClick={() => {
                                   const p = adm.permissions || {};
+                                  const prodPerm = p.products ?? p.inventory ?? true;
                                   setPermissionModal({
                                     admin: adm,
                                     permissions: {
                                       analytics: p.analytics ?? true,
-                                      inventory: p.inventory ?? true,
-                                      products: p.products ?? true,
+                                      inventory: prodPerm,
+                                      products: prodPerm,
                                       sales_pos: p.sales_pos ?? false,
                                       reports: p.reports ?? true,
                                       orders: p.orders ?? true,
                                       whatsapp_orders: p.whatsapp_orders ?? true,
-                                      customers: p.customers ?? true,
+                                      customers: true,
                                       feedback: p.feedback ?? true,
                                       admin_management: p.admin_management ?? false,
                                       settings: p.settings ?? false
@@ -5339,17 +5311,10 @@ export default function AdminPage({ initialPanel }) {
               <div className="grid grid-cols-2 gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => setActivePanel('inventory')}
-                  className="p-3 rounded-2xl bg-gray-50 dark:bg-dark-bg hover:bg-gold/10 border border-gray-200 dark:border-dark-border text-left font-bold text-xs text-forest-green dark:text-gold transition-colors cursor-pointer"
-                >
-                  📦 Inventory Stock
-                </button>
-                <button
-                  type="button"
                   onClick={() => setActivePanel('products')}
                   className="p-3 rounded-2xl bg-gray-50 dark:bg-dark-bg hover:bg-gold/10 border border-gray-200 dark:border-dark-border text-left font-bold text-xs text-forest-green dark:text-gold transition-colors cursor-pointer"
                 >
-                  🌾 Product Catalog
+                  🌾 Product Management
                 </button>
                 <button
                   type="button"
@@ -5941,6 +5906,7 @@ export default function AdminPage({ initialPanel }) {
                               const updated = { ...prev.permissions, [p.key]: val };
                               if (p.key === 'orders') updated.whatsapp_orders = val;
                               if (p.key === 'whatsapp_orders') updated.orders = val;
+                              if (p.key === 'products') updated.inventory = val;
                               return { ...prev, permissions: updated };
                             });
                           }}

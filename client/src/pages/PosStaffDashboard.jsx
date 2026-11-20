@@ -16,6 +16,7 @@ export default function PosStaffDashboard() {
   // Sales Entry Form State
   const [product, setProduct] = useState('1 KG Rice'); // '1 KG Rice' or '25 KG Rice'
   const [shop, setShop] = useState('');
+  const [mobile, setMobile] = useState('');
   const [area, setArea] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [qty, setQty] = useState(1);
@@ -108,6 +109,9 @@ export default function PosStaffDashboard() {
       setSubmitting(true);
       const payload = {
         customerName: shop.trim(),
+        customerMobile: mobile.trim() || undefined,
+        mobile: mobile.trim() || undefined,
+        phone: mobile.trim() || undefined,
         shop: shop.trim(),
         area: area.trim(),
         product,
@@ -127,6 +131,7 @@ export default function PosStaffDashboard() {
         setLastSavedSale(res.sale);
         // Reset form fields
         setShop('');
+        setMobile('');
         setArea('');
         setQty(1);
         setNotes('');
@@ -320,7 +325,7 @@ export default function PosStaffDashboard() {
         </div>
 
         <form onSubmit={handleSubmitSale} className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             
             {/* Customer / Shop Name */}
             <div>
@@ -333,6 +338,20 @@ export default function PosStaffDashboard() {
                 placeholder="e.g. Grand Biryani Hotel"
                 value={shop}
                 onChange={(e) => setShop(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
+              />
+            </div>
+
+            {/* Customer Mobile */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
+                Customer Mobile (Optional)
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 9876543210"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
               />
             </div>

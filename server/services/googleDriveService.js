@@ -150,37 +150,81 @@ const DAILY_COLUMN_WIDTHS = [
  */
 function formatOrderForExcel(order) {
   const dateParts = getKolkataDateParts(order.createdAt || order.date || new Date());
-  const txId = `ORD_${order.id || order._id}`;
-  const totalQty = parseInt(order.qty || 1, 10);
-  const totalAmount = parseFloat(order.total || 0);
+  const txId = `ORD_${order.id || order.orderId || order._id}`;
+  const totalQty = parseInt(
+    order.qty || 
+    (Array.isArray(order.items) ? order.items.reduce((s, it) => s + (it.quantity || 1), 0) : 1), 
+    10
+  );
+  const totalAmount = parseFloat(order.total || order.totalAmount || 0);
+  const subtotal = order.subtotal !== undefined && !isNaN(parseFloat(order.subtotal)) 
+    ? parseFloat(order.subtotal) 
+    : totalAmount;
+  const discount = order.discount !== undefined && !isNaN(parseFloat(order.discount)) 
+    ? parseFloat(order.discount) 
+    : 0;
+  const deliveryCharge = order.deliveryCharge !== undefined && !isNaN(parseFloat(order.deliveryCharge)) 
+    ? parseFloat(order.deliveryCharge) 
+    : 0;
 
-  const productDesc = `${order.product || 'Koppampatty Seeraga Samba Rice'} (x${totalQty})`;
+  let productDesc = order.product || 'Koppampatty Seeraga Samba Rice';
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    productDesc = order.items.map(it => `${it.name || it.product || 'Rice'} (x${it.quantity || 1})`).join(', ');
+  } else {
+    productDesc = `${productDesc} (x${totalQty})`;
+  }
+
   const unitWeightKg = order.productId === '25kg' || (order.product && order.product.includes('25')) ? 25 : 1;
   const totalWeightKg = order.stockDeductedKg || (totalQty * unitWeightKg);
-  const productDetails = `ID: ${order.productId || '1kg'} | Rate: ₹${order.rate || 195}/kg | Weight: ${totalWeightKg} KG`;
+  const productDetails = `ID: ${order.productId || order.orderId || '1kg'} | Rate: ₹${order.rate || 195}/kg | Weight: ${totalWeightKg} KG`;
+
+  const customerName = (
+    order.name ||
+    order.customerName ||
+    order.shippingAddress?.fullName ||
+    order.shippingAddress?.name ||
+    order.customer?.name ||
+    'Valued Customer'
+  ).trim();
+
+  const customerPhone = (
+    order.mobile ||
+    order.phone ||
+    order.shippingAddress?.phone ||
+    order.shippingAddress?.mobile ||
+    order.customer?.phone ||
+    'N/A'
+  ).trim();
+
+  const customerAddress = (
+    (order.address ? `${order.address}, ${order.area || ''}` : '') ||
+    (order.shippingAddress ? `${order.shippingAddress.addressLine1 || ''}, ${order.shippingAddress.city || ''}, ${order.shippingAddress.state || ''} ${order.shippingAddress.pincode || ''}` : '') ||
+    order.area ||
+    'Online Delivery'
+  ).trim().replace(/^,\s*|,\s*$/g, '');
 
   return {
     transactionId: txId,
-    orderSaleId: order.id || 'N/A',
+    orderSaleId: order.id || order.orderId || 'N/A',
     date: dateParts.dateStr,
     time: dateParts.timeStr,
     transactionType: 'Online Order',
-    customerName: (order.name || 'Valued Customer').trim(),
-    customerPhone: (order.mobile || 'N/A').trim(),
-    customerAddress: `${order.address || ''}, ${order.area || ''}`.trim().replace(/^,\s*|,\s*$/g, ''),
+    customerName,
+    customerPhone,
+    customerAddress,
     productsPurchased: productDesc,
     productDetails,
     totalQuantity: totalQty,
-    subtotal: totalAmount,
-    discount: 0,
-    deliveryCharge: 0,
+    subtotal,
+    discount,
+    deliveryCharge,
     totalAmount,
     paymentMethod: order.payment || order.paymentType || 'Cash on Delivery',
     paymentStatus: order.paymentStatus || 'Pending Verification',
     orderSaleStatus: order.status || 'Pending',
     salesStaffName: 'Online Store',
     posLoginId: 'N/A - Customer',
-    createdBy: (order.name || 'Website Customer').trim(),
+    createdBy: customerName,
     notes: order.notes ? order.notes.trim() : (order.utr ? `UPI Ref / UTR: ${order.utr}` : ''),
     dateParts
   };
@@ -195,10 +239,13 @@ function formatSaleForExcel(sale) {
   const txId = `POS_${sale.id || sale.transactionId || sale._id}`;
   const totalQty = parseInt(sale.qty || sale.quantity || 1, 10);
   const totalAmount = parseFloat(sale.total || sale.totalAmount || 0);
+  const subtotal = sale.subtotal !== undefined && !isNaN(parseFloat(sale.subtotal)) ? parseFloat(sale.subtotal) : totalAmount;
+  const discount = sale.discount !== undefined && !isNaN(parseFloat(sale.discount)) ? parseFloat(sale.discount) : 0;
   const productName = sale.product || sale.riceType || '1 KG Rice';
   const unitWeightKg = productName.includes('25') ? 25 : 1;
   const rate = parseFloat(sale.rate || sale.ratePerKg || (unitWeightKg === 25 ? 185 : 195));
   const productDetails = `Rate: ₹${rate}/kg | Total Weight: ${totalQty * unitWeightKg} KG`;
+  const customerMobile = (sale.mobile || sale.phone || sale.customerPhone || '').trim();
 
   return {
     transactionId: txId,
@@ -207,17 +254,17 @@ function formatSaleForExcel(sale) {
     time: dateParts.timeStr,
     transactionType: 'Offline POS Sale',
     customerName: (sale.customerName || sale.shop || 'Walk-in Customer').trim(),
-    customerPhone: 'N/A - Retail POS',
-    customerAddress: (sale.area || 'Retail Counter').trim(),
+    customerPhone: customerMobile ? customerMobile : 'N/A (Optional POS)',
+    customerAddress: (sale.area || sale.customerAddress || sale.address || 'Retail Counter').trim(),
     productsPurchased: `${productName} (x${totalQty})`,
     productDetails,
     totalQuantity: totalQty,
-    subtotal: totalAmount,
-    discount: 0,
+    subtotal,
+    discount,
     deliveryCharge: 0,
     totalAmount,
     paymentMethod: sale.payment || sale.paymentMethod || 'Cash',
-    paymentStatus: 'Paid',
+    paymentStatus: sale.paymentStatus || 'Paid',
     orderSaleStatus: sale.status || sale.transactionStatus || 'Delivered',
     salesStaffName: sale.salesperson || sale.staffName || 'POS Staff',
     posLoginId: sale.staffUserId || 'pos_counter',

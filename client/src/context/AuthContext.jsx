@@ -162,6 +162,10 @@ export function AuthProvider({ children }) {
     if (permKey === 'orders' || permKey === 'whatsapp_orders') {
       return !!(user.permissions.orders || user.permissions.whatsapp_orders);
     }
+    if (permKey === 'products' || permKey === 'inventory') {
+      return !!(user.permissions.products || user.permissions.inventory);
+    }
+    if (permKey === 'customers') return true;
     return !!user.permissions[permKey];
   };
 

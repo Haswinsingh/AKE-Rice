@@ -184,14 +184,14 @@ export default function Navbar() {
                           </Link>
                         )}
 
-                        {(isSuperAdmin || hasPermission('customers')) && (
+                        {(isSuperAdmin || hasPermission('products')) && (
                           <Link
-                            to="/admin?panel=customers"
+                            to="/admin?panel=products"
                             onClick={() => setUserDropdownOpen(false)}
                             className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
                           >
-                            <Users className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span>Customer Management</span>
+                            <Package className="w-3.5 h-3.5 text-gold shrink-0" />
+                            <span>Product Management</span>
                           </Link>
                         )}
 
@@ -350,14 +350,14 @@ export default function Navbar() {
                       </Link>
                     )}
 
-                    {(isSuperAdmin || hasPermission('customers')) && (
+                    {(isSuperAdmin || hasPermission('products')) && (
                       <Link
-                        to="/admin?panel=customers"
+                        to="/admin?panel=products"
                         onClick={() => setMobileMenuOpen(false)}
                         className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
                       >
-                        <Users className="w-4 h-4 text-gold shrink-0" />
-                        <span>Customer Management</span>
+                        <Package className="w-4 h-4 text-gold shrink-0" />
+                        <span>Product Management</span>
                       </Link>
                     )}
 

@@ -176,6 +176,10 @@ const requirePermission = (permissionKey) => {
       hasAccess = !!perms.sales_pos;
     } else if (permissionKey === 'orders' || permissionKey === 'whatsapp_orders') {
       hasAccess = !!(perms.orders || perms.whatsapp_orders);
+    } else if (permissionKey === 'inventory' || permissionKey === 'products') {
+      hasAccess = !!(perms.products || perms.inventory);
+    } else if (permissionKey === 'customers') {
+      hasAccess = !!(perms.orders || perms.reports || perms.products || perms.customers);
     } else if (perms[permissionKey] !== undefined) {
       hasAccess = !!perms[permissionKey];
     }
