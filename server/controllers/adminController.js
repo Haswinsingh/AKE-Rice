@@ -529,22 +529,6 @@ const SUPER_ADMIN_PERMISSIONS = {
 };
 
 /**
- * Super Admin protection helper
- */
-function isSuperAdminUser(user) {
-  if (!user) return false;
-  const founderNames = ['Kavin', 'Ashok Kumar'];
-  const founderMobiles = ['8489107668'];
-  const founderEmails = ['kaviyansellappan15@gmail.com'];
-  return (
-    user.isSuperAdmin === true ||
-    founderNames.includes(user.name) ||
-    founderMobiles.includes(user.mobile) ||
-    founderEmails.includes(user.email)
-  );
-}
-
-/**
  * List all admin accounts
  */
 exports.getAdminUsers = async (req, res) => {
