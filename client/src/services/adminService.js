@@ -156,7 +156,14 @@ export const adminService = {
   testDriveConnection: () => apiRequest('/admin/drive-backup/test-connection', { method: 'POST' }),
   syncCurrentMonthDriveBackup: () => apiRequest('/admin/drive-backup/sync-current-month', { method: 'POST' }),
   retryFailedDriveBackups: () => apiRequest('/admin/drive-backup/retry-failed', { method: 'POST' }),
-  exportHistoricalDriveBackup: () => apiRequest('/admin/drive-backup/export-historical', { method: 'POST' })
+  exportHistoricalDriveBackup: () => apiRequest('/admin/drive-backup/export-historical', { method: 'POST' }),
+
+  // Testing Records Preview & Cleanup
+  getTestRecordsPreview: () => apiRequest('/admin/test-records/preview'),
+  cleanupTestRecords: (data) => apiRequest('/admin/test-records/cleanup', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
 };
 
 export default adminService;

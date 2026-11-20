@@ -38,6 +38,11 @@ function getDriveClient() {
   return google.drive({ version: 'v3', auth });
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 /**
  * Format date and time parts according to Asia/Kolkata timezone
  */
@@ -67,16 +72,78 @@ function getKolkataDateParts(dateInput) {
   const minute = partMap.minute || '00';
   const second = partMap.second || '00';
 
+  const monthIdx = parseInt(month, 10) - 1;
+  const monthFullName = MONTH_NAMES[monthIdx] || 'Month';
+  const daySheetName = `${monthFullName} ${day}`;
+
   return {
     year,
     month,
     day,
+    monthFullName,
+    daySheetName,
     dateStr: `${year}-${month}-${day}`,
     timeStr: `${hour}:${minute}:${second}`,
     monthKey: `${year}_${month}`,
     monthFileName: `AKE_Rice_Transactions_${year}_${month}.xlsx`
   };
 }
+
+/**
+ * Standard 22 columns for every Daily Transaction Worksheet
+ */
+const DAILY_SHEET_HEADERS = [
+  'Transaction ID',
+  'Order / Sale ID',
+  'Date',
+  'Time',
+  'Transaction Type',
+  'Customer / Shop Name',
+  'Mobile Number',
+  'Delivery Address / Counter Area',
+  'Product Summary',
+  'Product Details',
+  'Quantity',
+  'Subtotal (₹)',
+  'Discount (₹)',
+  'Delivery Charge (₹)',
+  'Total Amount (₹)',
+  'Payment Method',
+  'Payment Status',
+  'Order / Transaction Status',
+  'Sales Staff Name',
+  'POS Login ID',
+  'Created By',
+  'Notes / UPI Reference'
+];
+
+/**
+ * Standard column width definitions for Daily Worksheets
+ */
+const DAILY_COLUMN_WIDTHS = [
+  { key: 'txId', width: 18 },
+  { key: 'orderSaleId', width: 16 },
+  { key: 'date', width: 13 },
+  { key: 'time', width: 11 },
+  { key: 'txType', width: 18 },
+  { key: 'customerName', width: 24 },
+  { key: 'phone', width: 16 },
+  { key: 'address', width: 28 },
+  { key: 'products', width: 30 },
+  { key: 'details', width: 32 },
+  { key: 'qty', width: 10 },
+  { key: 'subtotal', width: 14 },
+  { key: 'discount', width: 13 },
+  { key: 'delivery', width: 15 },
+  { key: 'total', width: 15 },
+  { key: 'paymentMethod', width: 18 },
+  { key: 'paymentStatus', width: 18 },
+  { key: 'orderStatus', width: 18 },
+  { key: 'salesStaff', width: 20 },
+  { key: 'posLoginId', width: 16 },
+  { key: 'createdBy', width: 20 },
+  { key: 'notes', width: 30 }
+];
 
 /**
  * Convert Order model to uniform Excel Transaction row object
@@ -175,7 +242,7 @@ async function getOrCreateYearFolder(drive, rootFolderId, year) {
     return res.data.files[0].id;
   }
 
-  // Create new year folder
+  // Create year subfolder if not found
   const folderMetadata = {
     name: String(year),
     mimeType: 'application/vnd.google-apps.folder',
@@ -183,16 +250,15 @@ async function getOrCreateYearFolder(drive, rootFolderId, year) {
   };
 
   const folder = await drive.files.create({
-    requestBody: folderMetadata,
-    fields: 'id, name'
+    resource: folderMetadata,
+    fields: 'id'
   });
 
-  console.log(`[GoogleDrive] Created year folder '${year}' in Drive (ID: ${folder.data.id})`);
   return folder.data.id;
 }
 
 /**
- * Search for an existing monthly Excel file in Google Drive under year folder
+ * Find existing monthly Excel file by file name in the year folder
  */
 async function findMonthlyFile(drive, yearFolderId, fileName) {
   const query = `'${yearFolderId}' in parents and name = '${fileName}' and trashed = false`;
@@ -209,121 +275,115 @@ async function findMonthlyFile(drive, yearFolderId, fileName) {
 }
 
 /**
- * Set up sheets, columns, formulas, and styles for a brand new monthly workbook
+ * Get or create a Daily Worksheet formatted according to specifications
  */
-function buildInitialWorkbook(year, month) {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'AKE Rice Automated Backup Service';
-  workbook.lastModifiedBy = 'AKE Rice REST API';
-  workbook.created = new Date();
-  workbook.modified = new Date();
+function getOrCreateDailySheet(workbook, daySheetName) {
+  let sheet = workbook.getWorksheet(daySheetName);
+  if (sheet) return sheet;
 
-  // -------------------------------------------------------------
-  // SHEET 1: TRANSACTIONS
-  // -------------------------------------------------------------
-  const txSheet = workbook.addWorksheet('TRANSACTIONS', {
-    views: [{ state: 'frozen', ySplit: 1 }]
-  });
+  sheet = workbook.addWorksheet(daySheetName);
 
-  txSheet.columns = [
-    { header: 'Transaction ID', key: 'transactionId', width: 22 },
-    { header: 'Order/Sale ID', key: 'orderSaleId', width: 16 },
-    { header: 'Transaction Date', key: 'date', width: 16 },
-    { header: 'Transaction Time', key: 'time', width: 16 },
-    { header: 'Transaction Type', key: 'transactionType', width: 18 },
-    { header: 'Customer Name', key: 'customerName', width: 26 },
-    { header: 'Customer Phone', key: 'customerPhone', width: 18 },
-    { header: 'Customer Address', key: 'customerAddress', width: 32 },
-    { header: 'Products Purchased', key: 'productsPurchased', width: 30 },
-    { header: 'Product Details', key: 'productDetails', width: 34 },
-    { header: 'Total Quantity', key: 'totalQuantity', width: 15 },
-    { header: 'Subtotal (₹)', key: 'subtotal', width: 16 },
-    { header: 'Discount (₹)', key: 'discount', width: 15 },
-    { header: 'Delivery Charge (₹)', key: 'deliveryCharge', width: 18 },
-    { header: 'Total Amount (₹)', key: 'totalAmount', width: 18 },
-    { header: 'Payment Method', key: 'paymentMethod', width: 20 },
-    { header: 'Payment Status', key: 'paymentStatus', width: 18 },
-    { header: 'Order/Sale Status', key: 'orderSaleStatus', width: 18 },
-    { header: 'Sales Staff Name', key: 'salesStaffName', width: 22 },
-    { header: 'POS Login ID', key: 'posLoginId', width: 18 },
-    { header: 'Created By', key: 'createdBy', width: 20 },
-    { header: 'Notes', key: 'notes', width: 32 }
-  ];
+  // Freeze header row
+  sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
 
-  // Header row styling
-  const headerRow = txSheet.getRow(1);
-  headerRow.height = 30;
-  headerRow.eachCell((cell) => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF1B4332' } // Dark Forest Green
-    };
-    cell.font = {
-      name: 'Calibri',
-      size: 11,
-      bold: true,
-      color: { argb: 'FFFFFFFF' }
-    };
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF0D2319' } },
-      bottom: { style: 'medium', color: { argb: 'FF0D2319' } },
-      left: { style: 'thin', color: { argb: 'FF2D6A4F' } },
-      right: { style: 'thin', color: { argb: 'FF2D6A4F' } }
-    };
-  });
+  // Add standard 22 column headers
+  sheet.addRow(DAILY_SHEET_HEADERS);
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 28;
 
-  // -------------------------------------------------------------
-  // SHEET 2: MONTHLY SUMMARY
-  // -------------------------------------------------------------
-  const summarySheet = workbook.addWorksheet('MONTHLY SUMMARY');
-  summarySheet.columns = [
-    { width: 36 },
-    { width: 26 },
-    { width: 32 }
-  ];
-
-  // -------------------------------------------------------------
-  // SHEET 3: PRODUCT SUMMARY
-  // -------------------------------------------------------------
-  const productSheet = workbook.addWorksheet('PRODUCT SUMMARY');
-  productSheet.columns = [
-    { header: 'Product Name', key: 'productName', width: 32 },
-    { header: 'Total Quantity Sold', key: 'totalQty', width: 22 },
-    { header: 'Total Revenue (₹)', key: 'totalRevenue', width: 22 },
-    { header: 'Number of Transactions', key: 'txCount', width: 24 }
-  ];
-
-  const prodHeader = productSheet.getRow(1);
-  prodHeader.height = 28;
-  prodHeader.eachCell((cell) => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF1B4332' }
-    };
+  headerRow.eachCell((cell, colNumber) => {
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1B4332' } // Dark Green theme
+    };
+    cell.border = {
+      bottom: { style: 'medium', color: { argb: 'FF2D6A4F' } }
+    };
+    if ([1, 2, 3, 4, 5, 11, 16, 17, 18, 20].includes(colNumber)) {
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    } else if ([12, 13, 14, 15].includes(colNumber)) {
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+    } else {
+      cell.alignment = { vertical: 'middle', horizontal: 'left' };
+    }
   });
 
-  return workbook;
+  // Enable Auto-Filter across all 22 columns
+  sheet.autoFilter = { from: 'A1', to: 'V1' };
+
+  // Set appropriate column widths
+  DAILY_COLUMN_WIDTHS.forEach((col, idx) => {
+    sheet.getColumn(idx + 1).width = col.width;
+  });
+
+  return sheet;
 }
 
 /**
- * Upsert transaction row into TRANSACTIONS worksheet.
- * Prevents duplicates by checking Column 1 (Transaction ID).
- * If exists: updates the row. If not: appends a new row.
+ * Check if a worksheet name represents a daily transaction sheet
+ * (i.e. not the summary sheets)
  */
-function upsertTransactionRow(txSheet, tx) {
+function isDailySheet(sheetName) {
+  if (!sheetName) return false;
+  const upper = sheetName.toUpperCase().trim();
+  return upper !== 'MONTHLY SUMMARY' && upper !== 'PRODUCT SUMMARY' && upper !== 'TRANSACTIONS';
+}
+
+/**
+ * Find and remove an existing transaction row across ANY sheet in the workbook.
+ * Useful if an order is deleted, or its date was edited and it moved to a new daily sheet.
+ */
+function removeTransactionFromWorkbook(workbook, transactionId) {
+  let removedInfo = null;
+
+  workbook.worksheets.forEach(sheet => {
+    // Only check daily sheets
+    if (!isDailySheet(sheet.name)) return;
+
+    for (let r = 2; r <= sheet.rowCount; r++) {
+      const cellVal = sheet.getRow(r).getCell(1).value;
+      if (cellVal === transactionId) {
+        sheet.spliceRows(r, 1);
+        removedInfo = { removed: true, sheetName: sheet.name, rowNumber: r };
+        break;
+      }
+    }
+  });
+
+  return removedInfo;
+}
+
+/**
+ * Upsert transaction row into its corresponding Daily Worksheet (e.g. "November 20").
+ * Idempotently updates if row exists; appends if new; moves row if date changed.
+ */
+function upsertDailyTransactionRow(workbook, tx) {
+  const targetDaySheetName = tx.dateParts.daySheetName;
+
+  // 1. If transaction already exists in a different daily sheet (due to date change), remove it from old sheet
+  workbook.worksheets.forEach(sheet => {
+    if (sheet.name !== targetDaySheetName && isDailySheet(sheet.name)) {
+      for (let r = 2; r <= sheet.rowCount; r++) {
+        if (sheet.getRow(r).getCell(1).value === tx.transactionId) {
+          sheet.spliceRows(r, 1);
+          break;
+        }
+      }
+    }
+  });
+
+  // 2. Get or create target day worksheet
+  const daySheet = getOrCreateDailySheet(workbook, targetDaySheetName);
+
+  // 3. Search target day worksheet for existing transaction row
   let targetRow = null;
   let isUpdate = false;
 
-  const rowCount = txSheet.rowCount;
-  for (let r = 2; r <= rowCount; r++) {
-    const row = txSheet.getRow(r);
-    const existingTxId = row.getCell(1).value;
-    if (existingTxId && String(existingTxId).trim() === tx.transactionId) {
+  for (let r = 2; r <= daySheet.rowCount; r++) {
+    const row = daySheet.getRow(r);
+    if (row.getCell(1).value === tx.transactionId) {
       targetRow = row;
       isUpdate = true;
       break;
@@ -331,10 +391,10 @@ function upsertTransactionRow(txSheet, tx) {
   }
 
   if (!targetRow) {
-    targetRow = txSheet.addRow([]);
+    targetRow = daySheet.addRow([]);
   }
 
-  // Populate cell values
+  // 4. Populate 22 standard columns
   targetRow.getCell(1).value = tx.transactionId;
   targetRow.getCell(2).value = tx.orderSaleId;
   targetRow.getCell(3).value = tx.date;
@@ -384,7 +444,6 @@ function upsertTransactionRow(txSheet, tx) {
       right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
     };
 
-    // Center dates, times, quantities, and IDs
     if ([1, 2, 3, 4, 5, 11, 16, 17, 18, 20].includes(colNumber)) {
       cell.alignment = { vertical: 'middle', horizontal: 'center' };
     } else if ([12, 13, 14, 15].includes(colNumber)) {
@@ -394,16 +453,48 @@ function upsertTransactionRow(txSheet, tx) {
     }
   });
 
-  return { action: isUpdate ? 'updated' : 'inserted', rowNumber: targetRow.number };
+  return {
+    action: isUpdate ? 'updated' : 'inserted',
+    sheetName: targetDaySheetName,
+    rowNumber: targetRow.number
+  };
 }
 
 /**
- * Recompute and format Sheet 2 (MONTHLY SUMMARY) and Sheet 3 (PRODUCT SUMMARY)
- * based on all rows in Sheet 1 (TRANSACTIONS).
+ * Create initial empty workbook with MONTHLY SUMMARY and PRODUCT SUMMARY sheets.
+ */
+function buildInitialWorkbook(year, month) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'AKE Rice Automation System';
+  workbook.lastModifiedBy = 'AKE Rice Cloud Worker';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  // Create MONTHLY SUMMARY and PRODUCT SUMMARY
+  recalculateSummarySheets(workbook, year, month);
+
+  return workbook;
+}
+
+/**
+ * Recompute and format:
+ * 1. Sheet: MONTHLY SUMMARY (Executive KPIs + Daily Revenue Breakdown Table)
+ * 2. Sheet: PRODUCT SUMMARY (Package Varieties, KG Weight, Revenue, Online vs Offline)
+ * by aggregating rows across ALL Daily Worksheets.
  */
 function recalculateSummarySheets(workbook, year, month) {
-  const txSheet = workbook.getWorksheet('TRANSACTIONS');
-  if (!txSheet) return;
+  let yr = year;
+  let mo = month;
+  if (typeof yr === 'string' && yr.includes('_') && !mo) {
+    const splitParts = yr.split('_');
+    yr = splitParts[0];
+    mo = splitParts[1];
+  }
+  if (!yr || !mo) {
+    const now = getKolkataDateParts(new Date());
+    yr = yr || now.year;
+    mo = mo || now.month;
+  }
 
   let onlineCount = 0;
   let offlineCount = 0;
@@ -424,90 +515,138 @@ function recalculateSummarySheets(workbook, year, month) {
   let pendingCount = 0;
   let pendingRevenue = 0;
 
+  const dailyAggregates = {};
   const productAggregates = {};
 
-  const rowCount = txSheet.rowCount;
-  for (let r = 2; r <= rowCount; r++) {
-    const row = txSheet.getRow(r);
-    const txType = String(row.getCell(5).value || '');
-    const totalAmount = parseFloat(row.getCell(15).value || 0) || 0;
-    const paymentMethod = String(row.getCell(16).value || '').toLowerCase();
-    const paymentStatus = String(row.getCell(17).value || '');
-    const orderStatus = String(row.getCell(18).value || '');
-    const products = String(row.getCell(9).value || '');
-    const qty = parseInt(row.getCell(11).value || 1, 10) || 1;
+  // Scan ALL daily worksheets
+  workbook.worksheets.forEach(sheet => {
+    if (!isDailySheet(sheet.name)) return;
 
-    if (!txType) continue;
+    for (let r = 2; r <= sheet.rowCount; r++) {
+      const row = sheet.getRow(r);
+      const txId = String(row.getCell(1).value || '');
+      const txDate = String(row.getCell(3).value || '');
+      const txType = String(row.getCell(5).value || '');
+      const totalAmount = parseFloat(row.getCell(15).value || 0) || 0;
+      const discount = parseFloat(row.getCell(13).value || 0) || 0;
+      const deliveryCharge = parseFloat(row.getCell(14).value || 0) || 0;
+      const paymentMethod = String(row.getCell(16).value || '').toLowerCase();
+      const paymentStatus = String(row.getCell(17).value || '');
+      const orderStatus = String(row.getCell(18).value || '');
+      const products = String(row.getCell(9).value || '');
+      const qty = parseInt(row.getCell(11).value || 1, 10) || 1;
 
-    const isCancelled = orderStatus.toLowerCase() === 'cancelled';
-    if (isCancelled) {
-      cancelledCount++;
-      cancelledRevenue += totalAmount;
-    }
+      if (!txId || !txType) continue;
 
-    const isPendingPayment = paymentStatus.toLowerCase().includes('pending') || paymentStatus.toLowerCase() === 'unpaid';
-    if (isPendingPayment) {
-      pendingCount++;
-      pendingRevenue += totalAmount;
-    }
+      totalDiscounts += discount;
+      totalDelivery += deliveryCharge;
 
-    if (txType.includes('Online')) {
-      onlineCount++;
-      if (!isCancelled) onlineRevenue += totalAmount;
-    } else {
-      offlineCount++;
-      if (!isCancelled) offlineRevenue += totalAmount;
-    }
+      const isCancelled = orderStatus.toLowerCase() === 'cancelled';
+      if (isCancelled) {
+        cancelledCount++;
+        cancelledRevenue += totalAmount;
+      }
 
-    // Payment method breakdown
-    if (paymentMethod.includes('cash on delivery') || paymentMethod === 'cod') {
-      codCount++;
-      codAmount += totalAmount;
-    } else if (paymentMethod.includes('cash')) {
-      cashCount++;
-      cashAmount += totalAmount;
-    } else if (paymentMethod.includes('online') || paymentMethod.includes('upi')) {
-      upiCount++;
-      upiAmount += totalAmount;
-    } else {
-      otherPaymentCount++;
-      otherPaymentAmount += totalAmount;
-    }
+      const isPendingPayment = paymentStatus.toLowerCase().includes('pending') || paymentStatus.toLowerCase() === 'unpaid';
+      if (isPendingPayment) {
+        pendingCount++;
+        pendingRevenue += totalAmount;
+      }
 
-    // Product breakdown
-    let matchedProd = 'Koppampatty Seeraga Samba Rice 1 KG';
-    if (products.includes('25')) {
-      matchedProd = 'Koppampatty Seeraga Samba Rice 25 KG (Bag)';
-    }
+      const isOnline = txType.includes('Online');
+      if (isOnline) {
+        onlineCount++;
+        if (!isCancelled) onlineRevenue += totalAmount;
+      } else {
+        offlineCount++;
+        if (!isCancelled) offlineRevenue += totalAmount;
+      }
 
-    if (!productAggregates[matchedProd]) {
-      productAggregates[matchedProd] = { qty: 0, revenue: 0, count: 0 };
+      // Payment mode breakdown
+      if (paymentMethod.includes('cash on delivery') || paymentMethod === 'cod') {
+        codCount++;
+        codAmount += totalAmount;
+      } else if (paymentMethod.includes('cash')) {
+        cashCount++;
+        cashAmount += totalAmount;
+      } else if (paymentMethod.includes('online') || paymentMethod.includes('upi')) {
+        upiCount++;
+        upiAmount += totalAmount;
+      } else {
+        otherPaymentCount++;
+        otherPaymentAmount += totalAmount;
+      }
+
+      // Daily Breakdown Aggregation
+      if (txDate) {
+        if (!dailyAggregates[txDate]) {
+          dailyAggregates[txDate] = {
+            date: txDate,
+            onlineOrders: 0,
+            offlineSales: 0,
+            totalTransactions: 0,
+            onlineRevenue: 0,
+            offlineRevenue: 0,
+            totalRevenue: 0
+          };
+        }
+        const d = dailyAggregates[txDate];
+        if (isOnline) {
+          d.onlineOrders += 1;
+          if (!isCancelled) d.onlineRevenue += totalAmount;
+        } else {
+          d.offlineSales += 1;
+          if (!isCancelled) d.offlineRevenue += totalAmount;
+        }
+        d.totalTransactions += 1;
+        if (!isCancelled) d.totalRevenue += totalAmount;
+      }
+
+      // Product Summary Aggregation
+      let prodKey = 'Koppampatty Seeraga Samba Rice 1 KG (Retail Pouch)';
+      let unitKg = 1;
+      if (products.includes('25') || products.toLowerCase().includes('bag')) {
+        prodKey = 'Koppampatty Seeraga Samba Rice 25 KG (Wholesale Bulk Bag)';
+        unitKg = 25;
+      }
+
+      if (!productAggregates[prodKey]) {
+        productAggregates[prodKey] = {
+          name: prodKey,
+          packsSold: 0,
+          totalQty: 0,
+          totalWeightKg: 0,
+          revenue: 0,
+          onlineQty: 0,
+          offlineQty: 0
+        };
+      }
+      const pa = productAggregates[prodKey];
+      pa.packsSold += qty;
+      pa.totalQty += qty;
+      pa.totalWeightKg += (qty * unitKg);
+      if (!isCancelled) pa.revenue += totalAmount;
+      if (isOnline) pa.onlineQty += qty;
+      else pa.offlineQty += qty;
     }
-    if (!isCancelled) {
-      productAggregates[matchedProd].qty += qty;
-      productAggregates[matchedProd].revenue += totalAmount;
-    }
-    productAggregates[matchedProd].count += 1;
-  }
+  });
 
   const totalTransactions = onlineCount + offlineCount;
   const totalRevenue = onlineRevenue + offlineRevenue;
 
-  // -------------------------------------------------------------
-  // UPDATE SHEET 2: MONTHLY SUMMARY
-  // -------------------------------------------------------------
-  let summarySheet = workbook.getWorksheet('MONTHLY SUMMARY');
-  if (!summarySheet) {
-    summarySheet = workbook.addWorksheet('MONTHLY SUMMARY');
+  // -----------------------------------------------------------------
+  // 1. BUILD / UPDATE SHEET: MONTHLY SUMMARY
+  // -----------------------------------------------------------------
+  const existingSummary = workbook.getWorksheet('MONTHLY SUMMARY');
+  if (existingSummary) {
+    workbook.removeWorksheet(existingSummary.id);
   }
-
-  // Clear existing rows
-  summarySheet.spliceRows(1, summarySheet.rowCount + 1);
+  const summarySheet = workbook.addWorksheet('MONTHLY SUMMARY');
 
   // Title Row
   summarySheet.mergeCells('A1:C1');
   const titleCell = summarySheet.getCell('A1');
-  titleCell.value = `🌾 AKE RICE – MONTHLY BUSINESS SUMMARY (${year}-${month})`;
+  titleCell.value = `🌾 AKE RICE – MONTHLY BUSINESS SUMMARY (${yr}-${mo})`;
   titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
   titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B4332' } };
   titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -526,11 +665,13 @@ function recalculateSummarySheets(workbook, year, month) {
   const summaryData = [
     ['Total Online Orders', onlineCount, onlineRevenue],
     ['Total Offline POS Sales', offlineCount, offlineRevenue],
-    ['TOTAL TRANSACTIONS', totalTransactions, totalRevenue],
+    ['TOTAL TRANSACTIONS & REVENUE', totalTransactions, totalRevenue],
     ['Cash Transactions (Counter)', cashCount, cashAmount],
     ['Cash on Delivery (Online)', codCount, codAmount],
     ['UPI / Online Payments', upiCount, upiAmount],
     ['Other Payment Methods', otherPaymentCount, otherPaymentAmount],
+    ['Total Discounts Given', '-', totalDiscounts],
+    ['Total Delivery Charges', '-', totalDelivery],
     ['Cancelled Transactions', cancelledCount, cancelledRevenue],
     ['Pending / Unverified Payments', pendingCount, pendingRevenue]
   ];
@@ -538,16 +679,18 @@ function recalculateSummarySheets(workbook, year, month) {
   summaryData.forEach(([label, count, amount], idx) => {
     const row = summarySheet.addRow([label, count, amount]);
     row.height = 24;
-    row.getCell(1).font = { name: 'Calibri', size: 10, bold: label.includes('TOTAL') };
-    row.getCell(2).font = { name: 'Calibri', size: 10, bold: label.includes('TOTAL') };
-    row.getCell(3).font = { name: 'Calibri', size: 10, bold: label.includes('TOTAL') };
+    const isTotal = label.includes('TOTAL');
+
+    row.getCell(1).font = { name: 'Calibri', size: 10, bold: isTotal };
+    row.getCell(2).font = { name: 'Calibri', size: 10, bold: isTotal };
+    row.getCell(3).font = { name: 'Calibri', size: 10, bold: isTotal };
 
     row.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
     row.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
     row.getCell(3).numFmt = '₹#,##0.00';
-    row.getCell(2).numFmt = '#,##0';
+    if (typeof count === 'number') row.getCell(2).numFmt = '#,##0';
 
-    if (label.includes('TOTAL')) {
+    if (isTotal) {
       row.eachCell(c => {
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
         c.border = {
@@ -564,98 +707,279 @@ function recalculateSummarySheets(workbook, year, month) {
     }
   });
 
-  // -------------------------------------------------------------
-  // UPDATE SHEET 3: PRODUCT SUMMARY
-  // -------------------------------------------------------------
-  let prodSheet = workbook.getWorksheet('PRODUCT SUMMARY');
-  if (!prodSheet) {
-    prodSheet = workbook.addWorksheet('PRODUCT SUMMARY');
-  }
+  // Spacer row
+  summarySheet.addRow([]);
 
-  // Clear existing data rows (keep header)
-  prodSheet.spliceRows(2, prodSheet.rowCount);
+  // Section Header: Daily Revenue Breakdown
+  const dailyHeaderStart = summarySheet.rowCount + 1;
+  summarySheet.mergeCells(`A${dailyHeaderStart}:G${dailyHeaderStart}`);
+  const dailyTitleCell = summarySheet.getCell(`A${dailyHeaderStart}`);
+  dailyTitleCell.value = '📅 DAILY REVENUE & TRANSACTION BREAKDOWN';
+  dailyTitleCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  dailyTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B4332' } };
+  dailyTitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+  summarySheet.getRow(dailyHeaderStart).height = 30;
 
-  let grandProdQty = 0;
-  let grandProdRevenue = 0;
-  let grandProdTx = 0;
+  // Daily Breakdown Column Headers
+  const dailyHeaders = [
+    'Date',
+    'Online Orders',
+    'Offline Sales',
+    'Total Transactions',
+    'Online Revenue (₹)',
+    'Offline Revenue (₹)',
+    'Total Revenue (₹)'
+  ];
+  summarySheet.addRow(dailyHeaders);
+  const dailySubHeader = summarySheet.getRow(dailyHeaderStart + 1);
+  dailySubHeader.height = 24;
+  dailySubHeader.eachCell(c => {
+    c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D6A4F' } };
+    c.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
 
-  for (const [prodName, stats] of Object.entries(productAggregates)) {
-    const row = prodSheet.addRow([prodName, stats.qty, stats.revenue, stats.count]);
-    row.height = 24;
-    row.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+  const sortedDates = Object.keys(dailyAggregates).sort();
+  sortedDates.forEach((dateStr, idx) => {
+    const d = dailyAggregates[dateStr];
+    const row = summarySheet.addRow([
+      d.date,
+      d.onlineOrders,
+      d.offlineSales,
+      d.totalTransactions,
+      d.onlineRevenue,
+      d.offlineRevenue,
+      d.totalRevenue
+    ]);
+    row.height = 22;
+
+    row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
     row.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
+    row.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
     row.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
+    row.getCell(5).alignment = { vertical: 'middle', horizontal: 'right' };
+    row.getCell(6).alignment = { vertical: 'middle', horizontal: 'right' };
+    row.getCell(7).alignment = { vertical: 'middle', horizontal: 'right' };
 
     row.getCell(2).numFmt = '#,##0';
-    row.getCell(3).numFmt = '₹#,##0.00';
+    row.getCell(3).numFmt = '#,##0';
     row.getCell(4).numFmt = '#,##0';
+    row.getCell(5).numFmt = '₹#,##0.00';
+    row.getCell(6).numFmt = '₹#,##0.00';
+    row.getCell(7).numFmt = '₹#,##0.00';
 
-    grandProdQty += stats.qty;
-    grandProdRevenue += stats.revenue;
-    grandProdTx += stats.count;
-
+    const isAlt = idx % 2 === 0;
     row.eachCell(c => {
-      c.font = { name: 'Calibri', size: 10 };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isAlt ? 'FFF9FAF8' : 'FFFFFFFF' } };
       c.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
     });
+  });
+
+  summarySheet.getColumn(1).width = 38;
+  summarySheet.getColumn(2).width = 22;
+  summarySheet.getColumn(3).width = 24;
+  summarySheet.getColumn(4).width = 20;
+  summarySheet.getColumn(5).width = 22;
+  summarySheet.getColumn(6).width = 22;
+  summarySheet.getColumn(7).width = 22;
+
+  // -----------------------------------------------------------------
+  // 2. BUILD / UPDATE SHEET: PRODUCT SUMMARY
+  // -----------------------------------------------------------------
+  const existingProd = workbook.getWorksheet('PRODUCT SUMMARY');
+  if (existingProd) {
+    workbook.removeWorksheet(existingProd.id);
+  }
+  const prodSheet = workbook.addWorksheet('PRODUCT SUMMARY');
+
+  // Title Row
+  prodSheet.mergeCells('A1:G1');
+  const prodTitleCell = prodSheet.getCell('A1');
+  prodTitleCell.value = `🌾 AKE RICE – PRODUCT VARIETY & PACKAGING SUMMARY (${yr}-${mo})`;
+  prodTitleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+  prodTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B4332' } };
+  prodTitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+  prodSheet.getRow(1).height = 36;
+
+  // Column Headers
+  const prodHeaders = [
+    'Product Name / Variety',
+    'Packs / Bags Sold',
+    'Total Quantity',
+    'Total Weight (KG)',
+    'Revenue (₹)',
+    'Online Quantity',
+    'Offline POS Quantity'
+  ];
+  prodSheet.addRow(prodHeaders);
+  const prodHeaderRow = prodSheet.getRow(2);
+  prodHeaderRow.height = 26;
+  prodHeaderRow.eachCell(c => {
+    c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2D6A4F' } };
+    c.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  // Ensure default varieties appear even if 0 sold
+  if (!productAggregates['Koppampatty Seeraga Samba Rice 1 KG (Retail Pouch)']) {
+    productAggregates['Koppampatty Seeraga Samba Rice 1 KG (Retail Pouch)'] = {
+      name: 'Koppampatty Seeraga Samba Rice 1 KG (Retail Pouch)',
+      packsSold: 0,
+      totalQty: 0,
+      totalWeightKg: 0,
+      revenue: 0,
+      onlineQty: 0,
+      offlineQty: 0
+    };
+  }
+  if (!productAggregates['Koppampatty Seeraga Samba Rice 25 KG (Wholesale Bulk Bag)']) {
+    productAggregates['Koppampatty Seeraga Samba Rice 25 KG (Wholesale Bulk Bag)'] = {
+      name: 'Koppampatty Seeraga Samba Rice 25 KG (Wholesale Bulk Bag)',
+      packsSold: 0,
+      totalQty: 0,
+      totalWeightKg: 0,
+      revenue: 0,
+      onlineQty: 0,
+      offlineQty: 0
+    };
   }
 
+  let grandPacks = 0;
+  let grandQty = 0;
+  let grandKg = 0;
+  let grandRevenue = 0;
+  let grandOnline = 0;
+  let grandOffline = 0;
+
+  Object.values(productAggregates).forEach((p, idx) => {
+    grandPacks += p.packsSold;
+    grandQty += p.totalQty;
+    grandKg += p.totalWeightKg;
+    grandRevenue += p.revenue;
+    grandOnline += p.onlineQty;
+    grandOffline += p.offlineQty;
+
+    const row = prodSheet.addRow([
+      p.name,
+      p.packsSold,
+      p.totalQty,
+      p.totalWeightKg,
+      p.revenue,
+      p.onlineQty,
+      p.offlineQty
+    ]);
+    row.height = 24;
+
+    row.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+    row.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+    row.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
+    row.getCell(4).alignment = { vertical: 'middle', horizontal: 'right' };
+    row.getCell(5).alignment = { vertical: 'middle', horizontal: 'right' };
+    row.getCell(6).alignment = { vertical: 'middle', horizontal: 'center' };
+    row.getCell(7).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    row.getCell(2).numFmt = '#,##0';
+    row.getCell(3).numFmt = '#,##0';
+    row.getCell(4).numFmt = '#,##0.00 "KG"';
+    row.getCell(5).numFmt = '₹#,##0.00';
+    row.getCell(6).numFmt = '#,##0';
+    row.getCell(7).numFmt = '#,##0';
+
+    const isAlt = idx % 2 === 0;
+    row.eachCell(c => {
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isAlt ? 'FFF9FAF8' : 'FFFFFFFF' } };
+      c.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
+    });
+  });
+
   // Grand Total Row
-  const totalRow = prodSheet.addRow(['TOTAL ALL PRODUCTS', grandProdQty, grandProdRevenue, grandProdTx]);
+  const totalRow = prodSheet.addRow([
+    'GRAND TOTAL',
+    grandPacks,
+    grandQty,
+    grandKg,
+    grandRevenue,
+    grandOnline,
+    grandOffline
+  ]);
   totalRow.height = 26;
-  totalRow.eachCell(c => {
+  totalRow.eachCell((c, colNum) => {
     c.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF1B4332' } };
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
     c.border = {
       top: { style: 'thin', color: { argb: 'FF1B4332' } },
       bottom: { style: 'double', color: { argb: 'FF1B4332' } }
     };
+    if (colNum === 1) c.alignment = { vertical: 'middle', horizontal: 'left' };
+    else if ([2, 3, 6, 7].includes(colNum)) c.alignment = { vertical: 'middle', horizontal: 'center' };
+    else c.alignment = { vertical: 'middle', horizontal: 'right' };
   });
+
   totalRow.getCell(2).numFmt = '#,##0';
-  totalRow.getCell(3).numFmt = '₹#,##0.00';
-  totalRow.getCell(4).numFmt = '#,##0';
-  totalRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
-  totalRow.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
-  totalRow.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
+  totalRow.getCell(3).numFmt = '#,##0';
+  totalRow.getCell(4).numFmt = '#,##0.00 "KG"';
+  totalRow.getCell(5).numFmt = '₹#,##0.00';
+  totalRow.getCell(6).numFmt = '#,##0';
+  totalRow.getCell(7).numFmt = '#,##0';
+
+  prodSheet.getColumn(1).width = 44;
+  prodSheet.getColumn(2).width = 18;
+  prodSheet.getColumn(3).width = 16;
+  prodSheet.getColumn(4).width = 20;
+  prodSheet.getColumn(5).width = 22;
+  prodSheet.getColumn(6).width = 18;
+  prodSheet.getColumn(7).width = 22;
 }
 
 /**
- * Save / Update Excel workbook directly in Google Drive
+ * Upload or update Excel workbook in Google Drive using In-Memory Buffer
  */
 async function saveWorkbookToDrive(drive, workbook, yearFolderId, existingFileId, fileName) {
   const buffer = await workbook.xlsx.writeBuffer();
-  const mediaStream = Readable.from(Buffer.from(buffer));
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+
+  const media = {
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    body: stream
+  };
 
   if (existingFileId) {
     const res = await drive.files.update({
       fileId: existingFileId,
-      media: {
-        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        body: mediaStream
-      },
+      media,
       fields: 'id, name, webViewLink, webContentLink, modifiedTime, size'
     });
-    return { fileId: res.data.id, fileName: res.data.name, webViewLink: res.data.webViewLink, isNew: false };
+    return {
+      fileId: res.data.id,
+      webViewLink: res.data.webViewLink,
+      fileName,
+      action: 'updated'
+    };
   } else {
+    const fileMetadata = {
+      name: fileName,
+      parents: [yearFolderId],
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
     const res = await drive.files.create({
-      requestBody: {
-        name: fileName,
-        parents: [yearFolderId],
-        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      },
-      media: {
-        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        body: mediaStream
-      },
+      resource: fileMetadata,
+      media,
       fields: 'id, name, webViewLink, webContentLink, modifiedTime, size'
     });
-    return { fileId: res.data.id, fileName: res.data.name, webViewLink: res.data.webViewLink, isNew: true };
+    return {
+      fileId: res.data.id,
+      webViewLink: res.data.webViewLink,
+      fileName,
+      action: 'created'
+    };
   }
 }
 
 /**
- * Export a single Order to Google Drive monthly workbook
+ * Export a single Online Order to Google Drive monthly workbook in its daily sheet.
+ * If the order is deleted or a test order, it is automatically removed from active sheets.
  */
 async function exportOrder(order) {
   const startTime = Date.now();
@@ -664,11 +988,16 @@ async function exportOrder(order) {
     if (order.save) {
       order.googleDriveExport = {
         status: 'not_configured',
-        error: 'Google Drive credentials (GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY / GOOGLE_DRIVE_FOLDER_ID) not configured.'
+        error: 'Google Drive credentials not configured.'
       };
       await order.save().catch(() => {});
     }
     return { success: false, reason: 'not_configured' };
+  }
+
+  // If order is deleted or test order, remove it from Drive workbook
+  if (order.isDeleted || order.isTest) {
+    return await removeOrderFromDrive(order.id, order.date || order.createdAt);
   }
 
   try {
@@ -677,10 +1006,7 @@ async function exportOrder(order) {
     const tx = formatOrderForExcel(order);
     const { year, month, monthFileName } = tx.dateParts;
 
-    // 1. Get or create Year folder (e.g., '2026')
     const yearFolderId = await getOrCreateYearFolder(drive, rootFolderId, year);
-
-    // 2. Find or create Monthly Excel workbook
     const existingFile = await findMonthlyFile(drive, yearFolderId, monthFileName);
     let workbook;
 
@@ -695,17 +1021,13 @@ async function exportOrder(order) {
       workbook = buildInitialWorkbook(year, month);
     }
 
-    // 3. Upsert row in TRANSACTIONS sheet (duplicate prevention)
-    let txSheet = workbook.getWorksheet('TRANSACTIONS');
-    if (!txSheet) {
-      txSheet = workbook.addWorksheet('TRANSACTIONS');
-    }
-    const upsertRes = upsertTransactionRow(txSheet, tx);
+    // Upsert row into corresponding Daily Worksheet (e.g. "November 20")
+    const upsertRes = upsertDailyTransactionRow(workbook, tx);
 
-    // 4. Recalculate MONTHLY SUMMARY and PRODUCT SUMMARY sheets
+    // Recalculate MONTHLY SUMMARY and PRODUCT SUMMARY sheets across all daily sheets
     recalculateSummarySheets(workbook, year, month);
 
-    // 5. Upload/update in Google Drive
+    // Upload/update in Google Drive
     const saveRes = await saveWorkbookToDrive(
       drive,
       workbook,
@@ -714,7 +1036,7 @@ async function exportOrder(order) {
       monthFileName
     );
 
-    // 6. Update MongoDB Order record
+    // Update MongoDB Order record
     order.googleDriveExport = {
       status: 'exported',
       fileId: saveRes.fileId,
@@ -739,12 +1061,12 @@ async function exportOrder(order) {
       transactionType: 'Online Order',
       transactionId: tx.transactionId,
       recordsProcessed: 1,
-      details: `${upsertRes.action === 'updated' ? 'Updated' : 'Inserted'} Online Order ${order.id} in ${monthFileName}`,
+      details: `${upsertRes.action === 'updated' ? 'Updated' : 'Inserted'} Order ${order.id} in sheet "${upsertRes.sheetName}" of ${monthFileName}`,
       durationMs: Date.now() - startTime
     }).catch(() => {});
 
-    console.log(`[GoogleDrive] Exported Online Order ${order.id} to ${monthFileName} (${upsertRes.action})`);
-    return { success: true, fileId: saveRes.fileId, fileName: monthFileName, action: upsertRes.action };
+    console.log(`[GoogleDrive] Exported Online Order ${order.id} to sheet "${upsertRes.sheetName}" in ${monthFileName}`);
+    return { success: true, fileId: saveRes.fileId, fileName: monthFileName, sheetName: upsertRes.sheetName, action: upsertRes.action };
   } catch (err) {
     console.error(`[GoogleDrive Error] Failed exporting Online Order ${order.id}:`, err.message);
     if (order.save) {
@@ -772,7 +1094,44 @@ async function exportOrder(order) {
 }
 
 /**
- * Export a single POS Sale to Google Drive monthly workbook
+ * Remove an order from its Google Drive monthly workbook and recalculate summaries.
+ */
+async function removeOrderFromDrive(orderId, orderDate) {
+  if (!isConfigured()) return { success: false, reason: 'not_configured' };
+
+  try {
+    const drive = getDriveClient();
+    const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
+    const dateParts = getKolkataDateParts(orderDate || new Date());
+    const { year, month, monthFileName } = dateParts;
+
+    const yearFolderId = await getOrCreateYearFolder(drive, rootFolderId, year);
+    const existingFile = await findMonthlyFile(drive, yearFolderId, monthFileName);
+    if (!existingFile) return { success: true, message: 'Monthly file does not exist.' };
+
+    const fileRes = await drive.files.get(
+      { fileId: existingFile.id, alt: 'media' },
+      { responseType: 'arraybuffer' }
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.from(fileRes.data));
+
+    const removeRes = removeTransactionFromWorkbook(workbook, `ORD_${orderId}`);
+    if (removeRes && removeRes.removed) {
+      recalculateSummarySheets(workbook, year, month);
+      await saveWorkbookToDrive(drive, workbook, yearFolderId, existingFile.id, monthFileName);
+      console.log(`[GoogleDrive] Removed ORD_${orderId} from sheet "${removeRes.sheetName}" in ${monthFileName}`);
+    }
+
+    return { success: true, removed: !!removeRes?.removed };
+  } catch (err) {
+    console.error(`[GoogleDrive Error] Failed to remove order ${orderId} from Drive:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Export a single POS Sale to Google Drive monthly workbook in its daily sheet.
  */
 async function exportSale(sale) {
   const startTime = Date.now();
@@ -788,16 +1147,18 @@ async function exportSale(sale) {
     return { success: false, reason: 'not_configured' };
   }
 
+  // If sale is deleted or test sale, remove from Drive workbook
+  if (sale.isDeleted || sale.isTest) {
+    return await removeSaleFromDrive(sale.id, sale.date || sale.transactionDate || sale.createdAt);
+  }
+
   try {
     const drive = getDriveClient();
     const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
     const tx = formatSaleForExcel(sale);
     const { year, month, monthFileName } = tx.dateParts;
 
-    // 1. Get or create Year folder
     const yearFolderId = await getOrCreateYearFolder(drive, rootFolderId, year);
-
-    // 2. Find or create Monthly Excel workbook
     const existingFile = await findMonthlyFile(drive, yearFolderId, monthFileName);
     let workbook;
 
@@ -812,17 +1173,9 @@ async function exportSale(sale) {
       workbook = buildInitialWorkbook(year, month);
     }
 
-    // 3. Upsert row in TRANSACTIONS sheet
-    let txSheet = workbook.getWorksheet('TRANSACTIONS');
-    if (!txSheet) {
-      txSheet = workbook.addWorksheet('TRANSACTIONS');
-    }
-    const upsertRes = upsertTransactionRow(txSheet, tx);
-
-    // 4. Recalculate summary sheets
+    const upsertRes = upsertDailyTransactionRow(workbook, tx);
     recalculateSummarySheets(workbook, year, month);
 
-    // 5. Upload/update in Google Drive
     const saveRes = await saveWorkbookToDrive(
       drive,
       workbook,
@@ -831,7 +1184,6 @@ async function exportSale(sale) {
       monthFileName
     );
 
-    // 6. Update MongoDB Sale record
     sale.googleDriveExport = {
       status: 'exported',
       fileId: saveRes.fileId,
@@ -844,7 +1196,6 @@ async function exportSale(sale) {
       await sale.save().catch(() => {});
     }
 
-    // Record audit log
     await DriveBackupLog.create({
       id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       action: 'auto_export',
@@ -856,12 +1207,12 @@ async function exportSale(sale) {
       transactionType: 'Offline POS Sale',
       transactionId: tx.transactionId,
       recordsProcessed: 1,
-      details: `${upsertRes.action === 'updated' ? 'Updated' : 'Inserted'} POS Sale ${sale.id} in ${monthFileName}`,
+      details: `${upsertRes.action === 'updated' ? 'Updated' : 'Inserted'} POS Sale ${sale.id} in sheet "${upsertRes.sheetName}" of ${monthFileName}`,
       durationMs: Date.now() - startTime
     }).catch(() => {});
 
-    console.log(`[GoogleDrive] Exported POS Sale ${sale.id} to ${monthFileName} (${upsertRes.action})`);
-    return { success: true, fileId: saveRes.fileId, fileName: monthFileName, action: upsertRes.action };
+    console.log(`[GoogleDrive] Exported POS Sale ${sale.id} to sheet "${upsertRes.sheetName}" in ${monthFileName}`);
+    return { success: true, fileId: saveRes.fileId, fileName: monthFileName, sheetName: upsertRes.sheetName, action: upsertRes.action };
   } catch (err) {
     console.error(`[GoogleDrive Error] Failed exporting POS Sale ${sale.id}:`, err.message);
     if (sale.save) {
@@ -889,8 +1240,45 @@ async function exportSale(sale) {
 }
 
 /**
- * Batch export transactions grouped by year and month.
- * Performs a single download, bulk row insertion/update, and single upload per month file!
+ * Remove a POS sale from its Google Drive monthly workbook and recalculate summaries.
+ */
+async function removeSaleFromDrive(saleId, saleDate) {
+  if (!isConfigured()) return { success: false, reason: 'not_configured' };
+
+  try {
+    const drive = getDriveClient();
+    const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
+    const dateParts = getKolkataDateParts(saleDate || new Date());
+    const { year, month, monthFileName } = dateParts;
+
+    const yearFolderId = await getOrCreateYearFolder(drive, rootFolderId, year);
+    const existingFile = await findMonthlyFile(drive, yearFolderId, monthFileName);
+    if (!existingFile) return { success: true, message: 'Monthly file does not exist.' };
+
+    const fileRes = await drive.files.get(
+      { fileId: existingFile.id, alt: 'media' },
+      { responseType: 'arraybuffer' }
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.from(fileRes.data));
+
+    const removeRes = removeTransactionFromWorkbook(workbook, `POS_${saleId}`);
+    if (removeRes && removeRes.removed) {
+      recalculateSummarySheets(workbook, year, month);
+      await saveWorkbookToDrive(drive, workbook, yearFolderId, existingFile.id, monthFileName);
+      console.log(`[GoogleDrive] Removed POS_${saleId} from sheet "${removeRes.sheetName}" in ${monthFileName}`);
+    }
+
+    return { success: true, removed: !!removeRes?.removed };
+  } catch (err) {
+    console.error(`[GoogleDrive Error] Failed to remove sale ${saleId} from Drive:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Batch export transactions grouped by year and month into their respective Daily Sheets.
+ * Excludes deleted orders and test records automatically.
  */
 async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'Admin') {
   const startTime = Date.now();
@@ -904,17 +1292,20 @@ async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'A
   const drive = getDriveClient();
   const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
 
-  // Normalize all transactions
+  // Filter out any deleted or test transactions
+  const validOrders = orders.filter(o => !o.isDeleted && !o.isTest);
+  const validSales = sales.filter(s => !s.isDeleted && !s.isTest);
+
   const allTxs = [
-    ...orders.map(o => ({ ...formatOrderForExcel(o), rawDoc: o, isOrder: true })),
-    ...sales.map(s => ({ ...formatSaleForExcel(s), rawDoc: s, isOrder: false }))
+    ...validOrders.map(o => ({ ...formatOrderForExcel(o), rawDoc: o, isOrder: true })),
+    ...validSales.map(s => ({ ...formatSaleForExcel(s), rawDoc: s, isOrder: false }))
   ];
 
   if (allTxs.length === 0) {
-    return { success: true, message: 'No transactions to export.', processedCount: 0 };
+    return { success: true, message: 'No valid transactions to export.', processedCount: 0 };
   }
 
-  // Group by monthKey (e.g., '2026_01', '2026_02')
+  // Group by monthKey (e.g. '2026_11')
   const monthGroups = {};
   for (const tx of allTxs) {
     const key = tx.dateParts.monthKey;
@@ -949,16 +1340,11 @@ async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'A
         workbook = buildInitialWorkbook(group.year, group.month);
       }
 
-      let txSheet = workbook.getWorksheet('TRANSACTIONS');
-      if (!txSheet) {
-        txSheet = workbook.addWorksheet('TRANSACTIONS');
-      }
-
       let insertedCount = 0;
       let updatedCount = 0;
 
       for (const tx of group.transactions) {
-        const res = upsertTransactionRow(txSheet, tx);
+        const res = upsertDailyTransactionRow(workbook, tx);
         if (res.action === 'inserted') insertedCount++;
         else updatedCount++;
       }
@@ -973,7 +1359,7 @@ async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'A
         group.fileName
       );
 
-      // Update MongoDB status for all processed transactions
+      // Update MongoDB status
       for (const tx of group.transactions) {
         const doc = tx.rawDoc;
         doc.googleDriveExport = {
@@ -1014,7 +1400,7 @@ async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'A
     action: 'historical_export',
     status: results.some(r => r.error) ? 'partial' : 'success',
     recordsProcessed: totalProcessed,
-    details: `Processed ${totalProcessed} transactions across ${Object.keys(monthGroups).length} monthly files.`,
+    details: `Processed ${totalProcessed} transactions across ${Object.keys(monthGroups).length} monthly files with Daily Sheets.`,
     triggeredBy,
     durationMs: Date.now() - startTime
   }).catch(() => {});
@@ -1027,19 +1413,21 @@ async function exportBatchTransactions(orders = [], sales = [], triggeredBy = 'A
 }
 
 /**
- * Historical Data Export: Export all existing database transactions
+ * Historical Data Export: Export all active non-test database transactions
  */
 async function exportAllHistoricalTransactions(triggeredBy = 'Admin') {
-  const orders = await Order.find({}).sort({ createdAt: 1 });
-  const sales = await Sale.find({}).sort({ createdAt: 1 });
+  const orders = await Order.find({ isDeleted: { $ne: true }, isTest: { $ne: true } }).sort({ createdAt: 1 });
+  const sales = await Sale.find({ isDeleted: { $ne: true }, isTest: { $ne: true } }).sort({ createdAt: 1 });
   return await exportBatchTransactions(orders, sales, triggeredBy);
 }
 
 /**
- * Retry Failed Exports: Look up pending or failed orders and sales and re-export them
+ * Retry Failed Exports: Re-export pending or failed transactions
  */
 async function retryFailedExports(triggeredBy = 'Admin') {
   const failedOrders = await Order.find({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
       { 'googleDriveExport.status': 'failed' },
       { 'googleDriveExport.status': 'pending' },
@@ -1048,6 +1436,8 @@ async function retryFailedExports(triggeredBy = 'Admin') {
   });
 
   const failedSales = await Sale.find({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
       { 'googleDriveExport.status': 'failed' },
       { 'googleDriveExport.status': 'pending' },
@@ -1059,14 +1449,15 @@ async function retryFailedExports(triggeredBy = 'Admin') {
 }
 
 /**
- * Sync Current Month Transactions: Export/update all transactions for the current month
+ * Sync Current Month Transactions into their daily sheets
  */
 async function syncCurrentMonth(triggeredBy = 'Admin') {
   const nowParts = getKolkataDateParts(new Date());
   const yearMonthPrefix = `${nowParts.year}-${nowParts.month}`;
 
-  // Fetch orders and sales for current month
   const orders = await Order.find({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
       { date: new RegExp(`^${yearMonthPrefix}`) },
       { createdAt: { $gte: new Date(`${nowParts.year}-${nowParts.month}-01T00:00:00.000Z`) } }
@@ -1074,6 +1465,8 @@ async function syncCurrentMonth(triggeredBy = 'Admin') {
   });
 
   const sales = await Sale.find({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
       { date: new RegExp(`^${yearMonthPrefix}`) },
       { transactionDate: new RegExp(`^${yearMonthPrefix}`) },
@@ -1100,31 +1493,22 @@ async function testConnection() {
     const drive = getDriveClient();
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
 
-    // Verify root folder access
     const folderRes = await drive.files.get({
       fileId: folderId,
-      fields: 'id, name, mimeType, capabilities, owners'
+      fields: 'id, name, mimeType, capabilities(canAddChildren, canEdit)'
     });
-
-    const isFolder = folderRes.data.mimeType === 'application/vnd.google-apps.folder';
-    if (!isFolder) {
-      return {
-        connected: false,
-        configured: true,
-        message: `ID '${folderId}' is not a Google Drive folder (MIME type: ${folderRes.data.mimeType}).`
-      };
-    }
 
     return {
       connected: true,
       configured: true,
-      folderId,
+      folderId: folderRes.data.id,
       folderName: folderRes.data.name,
-      serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL.trim(),
-      canEdit: folderRes.data.capabilities?.canEdit || true,
-      message: `Successfully connected to Google Drive folder "${folderRes.data.name}"!`
+      canAddChildren: folderRes.data.capabilities?.canAddChildren,
+      canEdit: folderRes.data.capabilities?.canEdit,
+      message: `Successfully connected to Google Drive folder: "${folderRes.data.name}"`
     };
   } catch (err) {
+    console.error('[GoogleDrive Error] testConnection failed:', err.message);
     return {
       connected: false,
       configured: true,
@@ -1135,68 +1519,119 @@ async function testConnection() {
 }
 
 /**
- * Get comprehensive backup status for the Admin Dashboard
+ * Gather backup status, active daily sheets, metrics, and drive files
  */
 async function getBackupStatus() {
   const configured = isConfigured();
-  const connTest = await testConnection();
+  let connected = false;
+  let connectionError = null;
+  let driveFiles = [];
+  let rootFolder = null;
+  let currentMonthSheets = [];
 
-  // Metric counts from MongoDB
-  const totalOrders = await Order.countDocuments({});
-  const exportedOrders = await Order.countDocuments({ 'googleDriveExport.status': 'exported' });
-  const failedOrders = await Order.countDocuments({ 'googleDriveExport.status': 'failed' });
-  const pendingOrders = totalOrders - exportedOrders - failedOrders;
-
-  const totalSales = await Sale.countDocuments({});
-  const exportedSales = await Sale.countDocuments({ 'googleDriveExport.status': 'exported' });
-  const failedSales = await Sale.countDocuments({ 'googleDriveExport.status': 'failed' });
-  const pendingSales = totalSales - exportedSales - failedSales;
-
-  // Current month stats
   const nowParts = getKolkataDateParts(new Date());
-  const yearMonthPrefix = `${nowParts.year}-${nowParts.month}`;
 
+  if (configured) {
+    try {
+      const drive = getDriveClient();
+      const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
+
+      const folderRes = await drive.files.get({
+        fileId: folderId,
+        fields: 'id, name'
+      });
+      rootFolder = folderRes.data;
+      connected = true;
+
+      // Find files in current year folder
+      const yearFolderId = await getOrCreateYearFolder(drive, folderId, nowParts.year);
+      const filesRes = await drive.files.list({
+        q: `'${yearFolderId}' in parents and trashed = false`,
+        fields: 'files(id, name, size, modifiedTime, webViewLink, webContentLink)',
+        orderBy: 'name desc'
+      });
+
+      if (filesRes.data.files) {
+        driveFiles = filesRes.data.files.map(f => ({
+          ...f,
+          year: nowParts.year
+        }));
+
+        // Check if current month workbook exists and inspect its daily sheets
+        const curFile = driveFiles.find(f => f.name === nowParts.monthFileName);
+        if (curFile) {
+          try {
+            const fileRes = await drive.files.get(
+              { fileId: curFile.id, alt: 'media' },
+              { responseType: 'arraybuffer' }
+            );
+            const wb = new ExcelJS.Workbook();
+            await wb.xlsx.load(Buffer.from(fileRes.data));
+            currentMonthSheets = wb.worksheets
+              .map(ws => ws.name)
+              .filter(name => isDailySheet(name));
+          } catch (e) {
+            // non-fatal if inspection fails
+          }
+        }
+      }
+    } catch (err) {
+      connected = false;
+      connectionError = err.message;
+    }
+  }
+
+  // Active MongoDB metrics (excluding deleted and test records)
+  const totalOrders = await Order.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true } });
+  const exportedOrders = await Order.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true }, 'googleDriveExport.status': 'exported' });
+  const pendingOrders = await Order.countDocuments({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
+    $or: [{ 'googleDriveExport.status': 'pending' }, { googleDriveExport: { $exists: false } }]
+  });
+  const failedOrders = await Order.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true }, 'googleDriveExport.status': 'failed' });
+
+  const totalSales = await Sale.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true } });
+  const exportedSales = await Sale.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true }, 'googleDriveExport.status': 'exported' });
+  const pendingSales = await Sale.countDocuments({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
+    $or: [{ 'googleDriveExport.status': 'pending' }, { googleDriveExport: { $exists: false } }]
+  });
+  const failedSales = await Sale.countDocuments({ isDeleted: { $ne: true }, isTest: { $ne: true }, 'googleDriveExport.status': 'failed' });
+
+  // Current month active transaction counts
+  const currentMonthPrefix = `${nowParts.year}-${nowParts.month}`;
   const currentMonthOrders = await Order.countDocuments({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
-      { date: new RegExp(`^${yearMonthPrefix}`) },
+      { date: new RegExp(`^${currentMonthPrefix}`) },
       { createdAt: { $gte: new Date(`${nowParts.year}-${nowParts.month}-01T00:00:00.000Z`) } }
     ]
   });
 
   const currentMonthSales = await Sale.countDocuments({
+    isDeleted: { $ne: true },
+    isTest: { $ne: true },
     $or: [
-      { date: new RegExp(`^${yearMonthPrefix}`) },
-      { transactionDate: new RegExp(`^${yearMonthPrefix}`) },
+      { date: new RegExp(`^${currentMonthPrefix}`) },
+      { transactionDate: new RegExp(`^${currentMonthPrefix}`) },
       { createdAt: { $gte: new Date(`${nowParts.year}-${nowParts.month}-01T00:00:00.000Z`) } }
     ]
   });
 
-  // Latest logs
-  const logs = await DriveBackupLog.find({}).sort({ createdAt: -1 }).limit(10);
-
-  // List existing Excel files in Google Drive if connected
-  let driveFiles = [];
-  if (connTest.connected) {
-    try {
-      const drive = getDriveClient();
-      const res = await drive.files.list({
-        q: `mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' and name contains 'AKE_Rice_Transactions_' and trashed = false`,
-        fields: 'files(id, name, webViewLink, webContentLink, modifiedTime, size, parents)',
-        orderBy: 'name desc',
-        pageSize: 30
-      });
-      driveFiles = res.data.files || [];
-    } catch (e) {
-      console.warn('[GoogleDrive] Could not list drive files:', e.message);
-    }
-  }
+  const logs = await DriveBackupLog.find({})
+    .sort({ createdAt: -1 })
+    .limit(15)
+    .lean();
 
   return {
     configured,
-    connected: connTest.connected,
-    folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? `${process.env.GOOGLE_DRIVE_FOLDER_ID.slice(0, 6)}...` : null,
-    folderName: connTest.folderName || 'AKE Rice Business Records',
-    serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
+    connected,
+    connectionError,
+    folderId: rootFolder ? rootFolder.id : (process.env.GOOGLE_DRIVE_FOLDER_ID || null),
+    folderName: rootFolder ? rootFolder.name : null,
     metrics: {
       totalTransactions: totalOrders + totalSales,
       totalExported: exportedOrders + exportedSales,
@@ -1220,7 +1655,9 @@ async function getBackupStatus() {
         fileName: nowParts.monthFileName,
         onlineOrders: currentMonthOrders,
         posSales: currentMonthSales,
-        total: currentMonthOrders + currentMonthSales
+        total: currentMonthOrders + currentMonthSales,
+        dailySheetsCount: currentMonthSheets.length,
+        dailySheets: currentMonthSheets
       }
     },
     driveFiles,
@@ -1232,14 +1669,19 @@ module.exports = {
   isConfigured,
   getDriveClient,
   getKolkataDateParts,
+  DAILY_SHEET_HEADERS,
   formatOrderForExcel,
   formatSaleForExcel,
+  getOrCreateDailySheet,
+  upsertDailyTransactionRow,
+  removeTransactionFromWorkbook,
   buildInitialWorkbook,
-  upsertTransactionRow,
   recalculateSummarySheets,
   saveWorkbookToDrive,
   exportOrder,
+  removeOrderFromDrive,
   exportSale,
+  removeSaleFromDrive,
   exportBatchTransactions,
   exportAllHistoricalTransactions,
   retryFailedExports,

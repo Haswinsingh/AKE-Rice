@@ -2,18 +2,20 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const User = require('../models/User');
 const Feedback = require('../models/Feedback');
+const OrderAuditLog = require('../models/OrderAuditLog');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const inventoryService = require('../services/inventoryService');
 const googleDriveService = require('../services/googleDriveService');
+const { isSuperAdminUser } = require('../middleware/authMiddleware');
 
 /**
  * Get comprehensive analytics for Admin Dashboard
  */
 exports.getDashboardAnalytics = async (req, res) => {
   try {
-    const orders = await Order.find({}).lean();
-    const sales = await Sale.find({}).lean();
+    const orders = await Order.find({ isDeleted: { $ne: true }, isTest: { $ne: true } }).lean();
+    const sales = await Sale.find({ isDeleted: { $ne: true }, isTest: { $ne: true } }).lean();
     const customersCount = await User.countDocuments({ role: 'customer' });
     const feedbackCount = await Feedback.countDocuments();
 
@@ -186,8 +188,14 @@ exports.getReports = async (req, res) => {
       endDate
     } = req.query;
 
-    let ordersQuery = {};
-    let salesQuery = {};
+    let ordersQuery = {
+      isDeleted: { $ne: true },
+      isTest: { $ne: true }
+    };
+    let salesQuery = {
+      isDeleted: { $ne: true },
+      isTest: { $ne: true }
+    };
 
     if (area && area !== 'all') {
       ordersQuery.area = new RegExp(area, 'i');
@@ -1240,6 +1248,246 @@ exports.exportHistoricalDriveBackup = async (req, res) => {
   } catch (error) {
     console.error('[AdminController] exportHistoricalDriveBackup error:', error);
     return res.status(500).json({ success: false, message: 'Failed to export historical transactions', error: error.message });
+  }
+};
+
+/**
+ * Preview test records vs real transactions
+ */
+exports.getTestRecordsPreview = async (req, res) => {
+  try {
+    const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
+    const sales = await Sale.find({}).sort({ createdAt: -1 }).lean();
+
+    const testKeywords = [/test/i, /dummy/i, /inventory test/i, /dynamic product test/i];
+    const testMobiles = ['9876000001', '9876000002', '9876543210', '9840998877', '9840123456'];
+
+    const testOrders = [];
+    const realOrders = [];
+
+    orders.forEach(o => {
+      let isTest = !!o.isTest;
+      const reasons = [];
+
+      if (o.isTest && o.testReason) {
+        reasons.push(o.testReason);
+      }
+      if (testKeywords.some(p => p.test(o.name))) {
+        isTest = true;
+        reasons.push(`Customer name mentions test: "${o.name}"`);
+      }
+      if (o.notes && testKeywords.some(p => p.test(o.notes))) {
+        isTest = true;
+        reasons.push(`Notes mention test: "${o.notes}"`);
+      }
+      if (testMobiles.includes(o.mobile)) {
+        isTest = true;
+        reasons.push(`Mobile ${o.mobile} is a known test number`);
+      }
+
+      const item = {
+        id: o.id,
+        name: o.name,
+        mobile: o.mobile,
+        address: o.address,
+        area: o.area,
+        product: o.product,
+        qty: o.qty,
+        total: o.total,
+        date: o.date || o.createdAt,
+        status: o.status,
+        payment: o.payment,
+        notes: o.notes,
+        isDeleted: !!o.isDeleted,
+        isTest,
+        reasons
+      };
+
+      if (isTest) testOrders.push(item);
+      else realOrders.push(item);
+    });
+
+    const testSales = [];
+    const realSales = [];
+
+    sales.forEach(s => {
+      let isTest = !!s.isTest;
+      const reasons = [];
+
+      if (s.isTest && s.testReason) {
+        reasons.push(s.testReason);
+      }
+      if (s.notes && testKeywords.some(p => p.test(s.notes))) {
+        isTest = true;
+        reasons.push(`Notes mention test: "${s.notes}"`);
+      }
+      if (testKeywords.some(p => p.test(s.shop) || p.test(s.customerName))) {
+        isTest = true;
+        reasons.push(`Shop/Customer name mentions test: "${s.shop || s.customerName}"`);
+      }
+
+      const item = {
+        id: s.id,
+        shop: s.shop,
+        customerName: s.customerName,
+        salesperson: s.salesperson,
+        product: s.product,
+        qty: s.qty,
+        total: s.total,
+        date: s.date,
+        status: s.status,
+        notes: s.notes,
+        isDeleted: !!s.isDeleted,
+        isTest,
+        reasons
+      };
+
+      if (isTest) testSales.push(item);
+      else realSales.push(item);
+    });
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        totalOrders: orders.length,
+        testOrdersCount: testOrders.length,
+        realOrdersCount: realOrders.length,
+        totalSales: sales.length,
+        testSalesCount: testSales.length,
+        realSalesCount: realSales.length
+      },
+      testOrders,
+      realOrders,
+      testSales,
+      realSales
+    });
+  } catch (error) {
+    console.error('[AdminController] getTestRecordsPreview error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to generate test records preview', error: error.message });
+  }
+};
+
+/**
+ * Execute confirmed test records cleanup
+ */
+exports.cleanupTestRecords = async (req, res) => {
+  try {
+    const { orderIds = [], saleIds = [], action = 'soft_delete', reason } = req.body;
+    const cleanupReason = (reason && reason.trim()) || 'Confirmed test data cleanup';
+
+    if (action === 'permanent_delete' && !isSuperAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        code: 'SUPER_ADMIN_REQUIRED',
+        message: 'Permanent deletion of test records requires Super Admin authorization.'
+      });
+    }
+
+    let cleanedOrdersCount = 0;
+    let cleanedSalesCount = 0;
+
+    // Handle Orders
+    for (const orderId of orderIds) {
+      const order = await Order.findOne({ id: orderId });
+      if (!order) continue;
+
+      if (action === 'permanent_delete') {
+        await OrderAuditLog.create({
+          id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          orderId: order.id,
+          action: 'permanent_delete',
+          orderDetails: {
+            id: order.id,
+            customerName: order.name,
+            total: order.total,
+            date: order.date
+          },
+          performedBy: {
+            id: req.user._id ? req.user._id.toString() : req.user.id,
+            name: req.user.name,
+            role: req.user.role,
+            isSuperAdmin: true
+          },
+          reason: cleanupReason
+        }).catch(() => {});
+
+        googleDriveService.removeOrderFromDrive(order.id, order.date || order.createdAt).catch(() => {});
+        await Order.deleteOne({ id: orderId });
+      } else {
+        // Soft delete / flag as test
+        order.isDeleted = true;
+        order.isTest = true;
+        order.testReason = cleanupReason;
+        order.deletedAt = new Date();
+        order.deletedBy = {
+          id: req.user._id ? req.user._id.toString() : req.user.id,
+          name: req.user.name || 'Admin',
+          role: req.user.role || 'admin',
+          email: req.user.email || ''
+        };
+        order.deletionReason = cleanupReason;
+        await order.save();
+
+        await OrderAuditLog.create({
+          id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          orderId: order.id,
+          action: 'test_cleanup',
+          orderDetails: {
+            id: order.id,
+            customerName: order.name,
+            total: order.total,
+            date: order.date
+          },
+          performedBy: {
+            id: req.user._id ? req.user._id.toString() : req.user.id,
+            name: req.user.name,
+            role: req.user.role,
+            isSuperAdmin: isSuperAdminUser(req.user)
+          },
+          reason: cleanupReason
+        }).catch(() => {});
+
+        googleDriveService.removeOrderFromDrive(order.id, order.date || order.createdAt).catch(() => {});
+      }
+      cleanedOrdersCount++;
+    }
+
+    // Handle Sales
+    for (const saleId of saleIds) {
+      const sale = await Sale.findOne({ id: saleId });
+      if (!sale) continue;
+
+      if (action === 'permanent_delete') {
+        googleDriveService.removeSaleFromDrive(sale.id, sale.date || sale.transactionDate).catch(() => {});
+        await Sale.deleteOne({ id: saleId });
+      } else {
+        sale.isDeleted = true;
+        sale.isTest = true;
+        sale.testReason = cleanupReason;
+        sale.deletedAt = new Date();
+        sale.deletedBy = {
+          id: req.user._id ? req.user._id.toString() : req.user.id,
+          name: req.user.name || 'Admin',
+          role: req.user.role || 'admin',
+          email: req.user.email || ''
+        };
+        sale.deletionReason = cleanupReason;
+        await sale.save();
+
+        googleDriveService.removeSaleFromDrive(sale.id, sale.date || sale.transactionDate).catch(() => {});
+      }
+      cleanedSalesCount++;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully processed ${cleanedOrdersCount} test orders and ${cleanedSalesCount} test sales (${action}).`,
+      cleanedOrdersCount,
+      cleanedSalesCount
+    });
+  } catch (error) {
+    console.error('[AdminController] cleanupTestRecords error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to cleanup test records', error: error.message });
   }
 };
 

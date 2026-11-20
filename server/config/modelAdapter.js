@@ -395,6 +395,9 @@ function createModel(collectionName, mongooseModel) {
     }
   }
 
+  ModelWrapper.schema = mongooseModel ? mongooseModel.schema : null;
+  ModelWrapper.mongooseModel = mongooseModel;
+
   return ModelWrapper;
 }
 

@@ -6,7 +6,7 @@ import {
   Clock, Shield, ShieldAlert, Eye, ZoomIn, Copy, Download, 
   Printer, Plus, Trash2, Filter, RefreshCw, Send, Search, ExternalLink, RotateCw,
   Package, Edit2, Check, X, Boxes, AlertTriangle, Key, UserPlus, Lock, Layers, History as HistoryIcon,
-  Settings, Cloud, HardDrive, FileCheck, Database
+  Settings, Cloud, HardDrive, FileCheck, Database, Calendar, Undo2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { adminService } from '../services/adminService';
@@ -119,6 +119,23 @@ export default function AdminPage({ initialPanel }) {
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [paymentVerifyModal, setPaymentVerifyModal] = useState(null); // { order, action: 'verify'|'reject' }
   const [verifyRemarks, setVerifyRemarks] = useState('');
+
+  // Order Deletion & Trash Management State
+  const [orderTab, setOrderTab] = useState('active'); // 'active' | 'trash'
+  const [trashOrders, setTrashOrders] = useState([]);
+  const [loadingTrash, setLoadingTrash] = useState(false);
+  const [deleteOrderModal, setDeleteOrderModal] = useState(null); // { order: {...} }
+  const [deleteReasonInput, setDeleteReasonInput] = useState('');
+  const [deletingOrder, setDeletingOrder] = useState(false);
+  const [permanentDeleteModal, setPermanentDeleteModal] = useState(null); // { order: {...} }
+  const [permanentDeleting, setPermanentDeleting] = useState(false);
+  const [restoringOrderId, setRestoringOrderId] = useState(null);
+
+  // Test Records Inspection & Cleanup State
+  const [testPreviewModal, setTestPreviewModal] = useState(false);
+  const [testPreviewData, setTestPreviewData] = useState(null);
+  const [loadingTestPreview, setLoadingTestPreview] = useState(false);
+  const [cleaningTestRecords, setCleaningTestRecords] = useState(false);
 
   // 5. Customer Registry State
   const [customers, setCustomers] = useState([]);
@@ -301,7 +318,10 @@ export default function AdminPage({ initialPanel }) {
       }
       if (activePanel === 'reports') loadReports();
       if (activePanel === 'drive-backup') loadDriveStatus();
-      if (activePanel === 'orders') loadOrders();
+      if (activePanel === 'orders') {
+        loadOrders();
+        loadTrashOrders();
+      }
       if (activePanel === 'customers') loadCustomers();
       if (activePanel === 'feedback') loadFeedback();
       if (activePanel === 'inventory') loadInventory();
@@ -376,6 +396,133 @@ export default function AdminPage({ initialPanel }) {
         if (res.success) setOrders(res.orders || []);
       })
       .catch(() => showToast('Failed to load orders', 'error'));
+  };
+
+  const loadTrashOrders = () => {
+    setLoadingTrash(true);
+    orderService.getTrashOrders()
+      .then(res => {
+        if (res.success) setTrashOrders(res.orders || []);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingTrash(false));
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!deleteOrderModal?.order?.id) return;
+    try {
+      setDeletingOrder(true);
+      const res = await orderService.deleteOrder(deleteOrderModal.order.id, deleteReasonInput);
+      if (res && res.success) {
+        showToast(`Order ${deleteOrderModal.order.id} moved to Trash.`, 'success');
+        setDeleteOrderModal(null);
+        setDeleteReasonInput('');
+        loadOrders();
+        loadTrashOrders();
+        loadDriveStatus();
+      } else {
+        showToast(res.message || 'Failed to delete order', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to delete order', 'error');
+    } finally {
+      setDeletingOrder(false);
+    }
+  };
+
+  const handleRestoreOrder = async (orderId) => {
+    try {
+      setRestoringOrderId(orderId);
+      const res = await orderService.restoreOrder(orderId);
+      if (res && res.success) {
+        showToast(`Order ${orderId} restored successfully!`, 'success');
+        loadOrders();
+        loadTrashOrders();
+        loadDriveStatus();
+      } else {
+        showToast(res.message || 'Failed to restore order', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to restore order', 'error');
+    } finally {
+      setRestoringOrderId(null);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (!permanentDeleteModal?.order?.id) return;
+    try {
+      setPermanentDeleting(true);
+      const res = await orderService.permanentDeleteOrder(permanentDeleteModal.order.id);
+      if (res && res.success) {
+        showToast(`Order ${permanentDeleteModal.order.id} permanently removed.`, 'success');
+        setPermanentDeleteModal(null);
+        loadTrashOrders();
+        loadDriveStatus();
+      } else {
+        showToast(res.message || 'Failed to permanently delete order', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to permanently delete order', 'error');
+    } finally {
+      setPermanentDeleting(false);
+    }
+  };
+
+  const handleOpenTestPreview = async () => {
+    try {
+      setLoadingTestPreview(true);
+      setTestPreviewModal(true);
+      const res = await adminService.getTestRecordsPreview();
+      if (res && res.success) {
+        setTestPreviewData(res);
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to inspect test records', 'error');
+    } finally {
+      setLoadingTestPreview(false);
+    }
+  };
+
+  const handleConfirmTestCleanup = async (actionType = 'soft_delete') => {
+    if (!testPreviewData) return;
+    const orderIds = (testPreviewData.testOrders || []).map(o => o.id);
+    const saleIds = (testPreviewData.testSales || []).map(s => s.id);
+
+    if (orderIds.length === 0 && saleIds.length === 0) {
+      showToast('No test records to clean up.', 'info');
+      return;
+    }
+
+    const confirmMsg = actionType === 'permanent_delete'
+      ? `PERMANENT DELETION: Are you sure you want to permanently erase ${orderIds.length} test orders and ${saleIds.length} test sales from the database?`
+      : `Move ${orderIds.length} test orders and ${saleIds.length} test sales to Trash / Exclude them from active reports and Google Drive?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setCleaningTestRecords(true);
+      const res = await adminService.cleanupTestRecords({
+        orderIds,
+        saleIds,
+        action: actionType,
+        reason: 'Administrator confirmed test data cleanup'
+      });
+      if (res && res.success) {
+        showToast(res.message, 'success');
+        setTestPreviewModal(false);
+        loadOrders();
+        loadTrashOrders();
+        loadDriveStatus();
+        loadReports();
+      } else {
+        showToast(res.message || 'Cleanup failed', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to clean up test records', 'error');
+    } finally {
+      setCleaningTestRecords(false);
+    }
   };
 
   const loadDriveStatus = async () => {
@@ -1315,7 +1462,10 @@ export default function AdminPage({ initialPanel }) {
                 loadPosReports();
                 loadComparison();
               }
-              if (activePanel === 'orders') loadOrders();
+              if (activePanel === 'orders') {
+                loadOrders();
+                loadTrashOrders();
+              }
               if (activePanel === 'reports') loadReports();
               if (activePanel === 'drive-backup') loadDriveStatus();
               if (activePanel === 'customers') loadCustomers();
@@ -2805,6 +2955,15 @@ export default function AdminPage({ initialPanel }) {
                   <HardDrive className={`w-3.5 h-3.5 ${driveActionPending === 'historical' ? 'animate-spin' : ''}`} />
                   <span>{driveActionPending === 'historical' ? 'Exporting...' : 'Export All Historical'}</span>
                 </button>
+
+                <button
+                  onClick={handleOpenTestPreview}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-semibold text-xs tracking-wider uppercase transition-colors"
+                  title="Inspect and clean up testing simulation records"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Test Data Cleanup</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2829,7 +2988,7 @@ export default function AdminPage({ initialPanel }) {
               </div>
             </div>
 
-            {/* Card 2: Current Month Activity */}
+            {/* Card 2: Current Month Activity & Daily Sheets */}
             <div className="bg-white dark:bg-dark-card p-5 rounded-2xl border border-gold/30 shadow-sm space-y-2">
               <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
                 <span className="text-xs font-bold uppercase tracking-wider">Current Month Workbook</span>
@@ -2841,7 +3000,7 @@ export default function AdminPage({ initialPanel }) {
                 {driveStatus?.metrics?.currentMonth?.total || 0} <span className="text-xs font-normal text-gray-500">entries</span>
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-dark-border truncate font-mono" title={driveStatus?.metrics?.currentMonth?.fileName}>
-                {driveStatus?.metrics?.currentMonth?.fileName || 'AKE_Rice_Transactions_...xlsx'}
+                {driveStatus?.metrics?.currentMonth?.dailySheetsCount || 0} Daily Sheets &bull; {driveStatus?.metrics?.currentMonth?.fileName || 'AKE_Rice_Transactions_...xlsx'}
               </div>
             </div>
 
@@ -2880,15 +3039,33 @@ export default function AdminPage({ initialPanel }) {
 
           </div>
 
+          {/* Active Daily Worksheets Pill List */}
+          {driveStatus?.metrics?.currentMonth?.dailySheets && driveStatus.metrics.currentMonth.dailySheets.length > 0 && (
+            <div className="bg-white dark:bg-dark-card p-4 rounded-2xl border border-gold/30 shadow-sm flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-forest-green dark:text-gold flex items-center gap-1.5 mr-2">
+                <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Active Daily Worksheets ({driveStatus.metrics.currentMonth.dailySheets.length}):</span>
+              </span>
+              {driveStatus.metrics.currentMonth.dailySheets.map((sheetName, idx) => (
+                <span
+                  key={idx}
+                  className="px-2.5 py-1 rounded-lg bg-forest-green/10 dark:bg-gold/15 text-forest-green dark:text-gold-light border border-forest-green/20 dark:border-gold/30 text-xs font-semibold"
+                >
+                  {sheetName}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* 3. Consolidated Monthly Excel Architecture Explainer */}
           <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-                  3-Sheet Monthly Excel Workbook Structure
+                  Monthly Excel Architecture: 1 File Per Month with Daily Sheets
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  All transactions belonging to the same month are automatically grouped into a single monthly workbook with three specialized sheets.
+                  All transactions belonging to the same month are consolidated into a single monthly workbook, organized into separate daily worksheets followed by executive monthly and product summaries.
                 </p>
               </div>
               <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-gold/15 text-forest-green dark:text-gold border border-gold/30">
@@ -2899,24 +3076,24 @@ export default function AdminPage({ initialPanel }) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
               <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
                 <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Sheet 1: TRANSACTIONS</span>
+                  <Calendar className="w-4 h-4" />
+                  <span>Daily Worksheets (e.g. "November 20")</span>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                  <strong>22 standardized columns</strong> consolidating Online Store Orders & Offline POS Sales. Includes Transaction ID (<code className="font-mono text-[10px]">ORD_...</code> / <code className="font-mono text-[10px]">POS_...</code>), date & time, customer, phone, delivery address, line item, quantities, amounts, payment mode, staff identity, and status.
+                  <strong>22 standardized columns</strong> consolidating Online Store Orders & Offline POS Sales for each calendar day. Includes Transaction ID (<code className="font-mono text-[10px]">ORD_...</code> / <code className="font-mono text-[10px]">POS_...</code>), timestamp, customer, phone, address, lines, amounts, payment mode, staff identity, and status.
                 </p>
                 <div className="text-[11px] text-gray-500">
-                  ✓ Idempotent upserting (updates existing row without duplicates)
+                  ✓ Idempotent upserting (updates in-place without duplicate rows)
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
                 <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
                   <TrendingUp className="w-4 h-4" />
-                  <span>Sheet 2: MONTHLY SUMMARY</span>
+                  <span>Sheet: MONTHLY SUMMARY</span>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                  Financial KPIs and volume analytics. Total Monthly Revenue, Online Revenue vs POS Offline Revenue, Cash vs UPI collections, total items sold, delivered vs pending orders, and average order value.
+                  Financial KPIs and volume analytics. Total Monthly Revenue, Online Revenue vs POS Offline Revenue, Cash vs UPI collections, total items sold, plus a comprehensive <strong>Daily Revenue Breakdown table</strong> for every day of the month.
                 </p>
                 <div className="text-[11px] text-gray-500">
                   ✓ Recalculated dynamically on every transaction export
@@ -2926,13 +3103,13 @@ export default function AdminPage({ initialPanel }) {
               <div className="p-4 rounded-2xl bg-forest-green/5 dark:bg-gold/5 border border-forest-green/20 dark:border-gold/20 space-y-2">
                 <div className="flex items-center gap-2 font-bold text-forest-green dark:text-gold text-sm">
                   <Package className="w-4 h-4" />
-                  <span>Sheet 3: PRODUCT SUMMARY</span>
+                  <span>Sheet: PRODUCT SUMMARY</span>
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-                  Volume and revenue broken down by product variety: <strong>1 KG Retail Pouch</strong> (@ ₹195/kg) and <strong>25 KG Wholesale Bulk Bags</strong> (@ ₹185/kg). Total KG volume sold and transaction counts.
+                  Volume and revenue broken down by product variety: <strong>1 KG Retail Pouch</strong> (@ ₹195/kg) and <strong>25 KG Wholesale Bulk Bags</strong> (@ ₹185/kg). Total KG volume sold, total packs/bags, online vs offline quantities.
                 </p>
                 <div className="text-[11px] text-gray-500">
-                  ✓ Tracks inventory movement and product popularity
+                  ✓ Tracks inventory movement and variety popularity
                 </div>
               </div>
             </div>
@@ -3143,142 +3320,329 @@ export default function AdminPage({ initialPanel }) {
       {activePanel === 'orders' && (
         <div className="space-y-6 animate-in fade-in">
           
-          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex-1 w-full sm:w-auto relative">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search by Order ID (AKE...), Customer Name, or Mobile..."
-                value={orderSearch}
-                onChange={(e) => setOrderSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && loadOrders()}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-xs focus:outline-none focus:border-gold"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <select
-                value={orderStatusFilter}
-                onChange={(e) => {
-                  setOrderStatusFilter(e.target.value);
-                  setTimeout(loadOrders, 100);
-                }}
-                className="px-3 py-2 rounded-xl border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg font-semibold"
+          {/* Orders Navigation Tabs: Active Orders vs Trash */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-dark-card p-4 rounded-3xl border border-gold/30 shadow-md">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setOrderTab('active')}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                  orderTab === 'active'
+                    ? 'bg-forest-green text-gold-light shadow-md'
+                    : 'bg-gray-100 dark:bg-dark-bg text-gray-600 dark:text-gray-400 hover:bg-gold/10'
+                }`}
               >
-                <option value="all">All Statuses</option>
-                <option value="Pending">Pending</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Processing">Processing</option>
-                <option value="Ready for Delivery">Ready for Delivery</option>
-                <option value="Out for Delivery">Out for Delivery</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
+                <ShoppingBag className="w-4 h-4" />
+                <span>Active Orders</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-mono">
+                  {orders.length}
+                </span>
+              </button>
 
               <button
                 type="button"
-                onClick={loadOrders}
-                className="px-4 py-2 rounded-xl bg-forest-green text-gold-light text-xs font-bold uppercase tracking-wider"
+                onClick={() => {
+                  setOrderTab('trash');
+                  loadTrashOrders();
+                }}
+                className={`px-5 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                  orderTab === 'trash'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-dark-bg text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20'
+                }`}
               >
-                Search
+                <Trash2 className="w-4 h-4" />
+                <span>Deleted Orders / Trash</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                  orderTab === 'trash' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400'
+                }`}>
+                  {trashOrders.length}
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={handleOpenTestPreview}
+                className="px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Inspect identified testing orders and safely cleanup"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>Test Records Cleanup</span>
               </button>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green text-white font-bold">
-                  <tr>
-                    <th className="p-3">Order ID</th>
-                    <th className="p-3">Customer</th>
-                    <th className="p-3">Items</th>
-                    <th className="p-3">Total Amount</th>
-                    <th className="p-3">Payment</th>
-                    <th className="p-3">Verification</th>
-                    <th className="p-3">Delivery Status</th>
-                    <th className="p-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {orders.map(o => (
-                    <tr key={o.id} className="hover:bg-gold/5">
-                      <td className="p-3 font-mono font-bold text-forest-green dark:text-gold">{o.id}</td>
-                      <td className="p-3">
-                        <strong className="block text-gray-800 dark:text-gray-200">{o.name}</strong>
-                        <span className="text-gray-400 font-mono">+91 {o.mobile}</span>
-                      </td>
-                      <td className="p-3">{o.product} (×{o.qty})</td>
-                      <td className="p-3 font-bold text-forest-green dark:text-gold">₹{o.total?.toLocaleString('en-IN')}</td>
-                      <td className="p-3">
-                        <span className="block font-semibold">{o.payment}</span>
-                        {o.utr && <span className="text-[10px] text-gray-400">UTR: {o.utr}</span>}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            o.paymentStatus === 'Verified'
-                              ? 'bg-emerald/20 text-emerald'
-                              : o.paymentStatus === 'Rejected'
-                              ? 'bg-red-100 text-red-600'
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {o.paymentStatus}
-                          </span>
+          {/* ACTIVE ORDERS VIEW */}
+          {orderTab === 'active' && (
+            <>
+              <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex-1 w-full sm:w-auto relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search by Order ID (AKE...), Customer Name, or Mobile..."
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && loadOrders()}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-xs focus:outline-none focus:border-gold"
+                  />
+                </div>
 
-                          {o.screenshot && (
-                            <button
-                              onClick={() => setLightboxImg(o.screenshot)}
-                              className="p-1 text-gold hover:text-forest-green"
-                              title="View screenshot proof"
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <select
+                    value={orderStatusFilter}
+                    onChange={(e) => {
+                      setOrderStatusFilter(e.target.value);
+                      setTimeout(loadOrders, 100);
+                    }}
+                    className="px-3 py-2 rounded-xl border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg font-semibold"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Ready for Delivery">Ready for Delivery</option>
+                    <option value="Out for Delivery">Out for Delivery</option>
+                    <option value="Delivered">Delivered</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={loadOrders}
+                    className="px-4 py-2 rounded-xl bg-forest-green text-gold-light text-xs font-bold uppercase tracking-wider cursor-pointer"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-forest-green text-white font-bold">
+                      <tr>
+                        <th className="p-3">Order ID</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">Items</th>
+                        <th className="p-3">Total Amount</th>
+                        <th className="p-3">Payment</th>
+                        <th className="p-3">Verification</th>
+                        <th className="p-3">Delivery Status</th>
+                        <th className="p-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                      {orders.map(o => (
+                        <tr key={o.id} className="hover:bg-gold/5">
+                          <td className="p-3 font-mono font-bold text-forest-green dark:text-gold">{o.id}</td>
+                          <td className="p-3">
+                            <strong className="block text-gray-800 dark:text-gray-200">{o.name}</strong>
+                            <span className="text-gray-400 font-mono">+91 {o.mobile}</span>
+                          </td>
+                          <td className="p-3">{o.product} (×{o.qty})</td>
+                          <td className="p-3 font-bold text-forest-green dark:text-gold">₹{o.total?.toLocaleString('en-IN')}</td>
+                          <td className="p-3">
+                            <span className="block font-semibold">{o.payment}</span>
+                            {o.utr && <span className="text-[10px] text-gray-400">UTR: {o.utr}</span>}
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                o.paymentStatus === 'Verified'
+                                  ? 'bg-emerald/20 text-emerald'
+                                  : o.paymentStatus === 'Rejected'
+                                  ? 'bg-red-100 text-red-600'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {o.paymentStatus}
+                              </span>
+
+                              {o.screenshot && (
+                                <button
+                                  onClick={() => setLightboxImg(o.screenshot)}
+                                  className="p-1 text-gold hover:text-forest-green cursor-pointer"
+                                  title="View screenshot proof"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <select
+                              value={o.status}
+                              onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                              className="px-2 py-1 rounded-lg border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg font-semibold"
                             >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <select
-                          value={o.status}
-                          onChange={(e) => handleStatusChange(o.id, e.target.value)}
-                          className="px-2 py-1 rounded-lg border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg font-semibold"
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Confirmed">Confirmed</option>
-                          <option value="Processing">Processing</option>
-                          <option value="Ready for Delivery">Ready for Delivery</option>
-                          <option value="Out for Delivery">Out for Delivery</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5">
-                          {o.screenshot && o.paymentStatus !== 'Verified' && (
-                            <button
-                              onClick={() => setPaymentVerifyModal({ order: o, action: 'verify' })}
-                              className="px-2 py-1 rounded bg-emerald/20 text-emerald font-bold text-[10px] hover:bg-emerald/30"
-                            >
-                              Verify
-                            </button>
-                          )}
-                          <a
-                            href={`https://wa.me/91${o.mobile}?text=Hello%20${encodeURIComponent(o.name)},%20regarding%20your%20AKE%20Rice%20order%20${o.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-1 text-emerald hover:text-emerald-700"
-                            title="Chat with Customer on WhatsApp"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                              <option value="Pending">Pending</option>
+                              <option value="Confirmed">Confirmed</option>
+                              <option value="Processing">Processing</option>
+                              <option value="Ready for Delivery">Ready for Delivery</option>
+                              <option value="Out for Delivery">Out for Delivery</option>
+                              <option value="Delivered">Delivered</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1.5">
+                              {o.screenshot && o.paymentStatus !== 'Verified' && (
+                                <button
+                                  onClick={() => setPaymentVerifyModal({ order: o, action: 'verify' })}
+                                  className="px-2 py-1 rounded bg-emerald/20 text-emerald font-bold text-[10px] hover:bg-emerald/30 cursor-pointer"
+                                >
+                                  Verify
+                                </button>
+                              )}
+                              <a
+                                href={`https://wa.me/91${o.mobile}?text=Hello%20${encodeURIComponent(o.name)},%20regarding%20your%20AKE%20Rice%20order%20${o.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-emerald hover:text-emerald-700"
+                                title="Chat with Customer on WhatsApp"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                              {/* Order Deletion Action (Admin & Super Admin Only) */}
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDeleteReasonInput('');
+                                    setDeleteOrderModal({ order: o });
+                                  }}
+                                  className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                                  title="Delete Order (Admin / Super Admin)"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* DELETED ORDERS / TRASH VIEW */}
+          {orderTab === 'trash' && (
+            <div className="bg-white dark:bg-dark-card rounded-3xl border border-red-300 dark:border-red-900/50 shadow-md overflow-hidden space-y-4 p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-gray-100 dark:border-dark-border">
+                <div>
+                  <h3 className="brand-font text-lg font-bold text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <Trash2 className="w-5 h-5" />
+                    <span>Deleted Orders / Trash Archive ({trashOrders.length})</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Soft-deleted orders excluded from store operations, customer history, and reports. Restore at any time or permanently delete (Super Admin only).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadTrashOrders}
+                  disabled={loadingTrash}
+                  className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-dark-bg text-gray-700 dark:text-gray-300 text-xs font-bold flex items-center gap-2 hover:bg-gray-200 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTrash ? 'animate-spin' : ''}`} />
+                  <span>Refresh Trash</span>
+                </button>
+              </div>
+
+              {loadingTrash ? (
+                <div className="py-12 text-center text-xs text-gray-400">
+                  <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gold mb-2" />
+                  Loading deleted orders...
+                </div>
+              ) : trashOrders.length === 0 ? (
+                <div className="py-12 text-center text-xs text-gray-400">
+                  <Trash2 className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2 opacity-50" />
+                  No deleted orders found in trash.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-red-700 text-white font-bold">
+                      <tr>
+                        <th className="p-3">Order ID</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">Items & Total</th>
+                        <th className="p-3">Deleted At</th>
+                        <th className="p-3">Deleted By</th>
+                        <th className="p-3">Reason</th>
+                        <th className="p-3">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                      {trashOrders.map(o => (
+                        <tr key={o.id} className="hover:bg-red-500/5">
+                          <td className="p-3 font-mono font-bold text-red-600 dark:text-red-400">{o.id}</td>
+                          <td className="p-3">
+                            <strong className="block text-gray-800 dark:text-gray-200">{o.name}</strong>
+                            <span className="text-gray-400 font-mono">+91 {o.mobile}</span>
+                          </td>
+                          <td className="p-3">
+                            <span className="block font-semibold">{o.product} (×{o.qty})</span>
+                            <span className="font-bold text-forest-green dark:text-gold">₹{o.total?.toLocaleString('en-IN')}</span>
+                          </td>
+                          <td className="p-3 text-gray-500 font-mono">
+                            {o.deletedAt ? new Date(o.deletedAt).toLocaleString('en-IN') : 'N/A'}
+                          </td>
+                          <td className="p-3">
+                            <span className="block font-semibold text-gray-800 dark:text-gray-200">
+                              {o.deletedBy?.name || 'Administrator'}
+                            </span>
+                            <span className="text-[10px] uppercase font-bold text-gray-400">
+                              {o.deletedBy?.role || 'admin'}
+                            </span>
+                          </td>
+                          <td className="p-3 max-w-[200px]">
+                            <span className="italic text-gray-600 dark:text-gray-400 text-[11px] line-clamp-2" title={o.deletionReason}>
+                              {o.deletionReason || 'No reason specified'}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreOrder(o.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald/15 hover:bg-emerald/25 text-emerald font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Restore order to active orders and daily backup"
+                              >
+                                <Undo2 className="w-3.5 h-3.5" />
+                                <span>Restore</span>
+                              </button>
+
+                              {isSuperAdmin ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setPermanentDeleteModal({ order: o })}
+                                  className="px-2.5 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-950/40 dark:text-red-400 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Permanently Purge Order (Super Admin only)"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Purge</span>
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-gray-400 italic flex items-center gap-1" title="Permanent deletion restricted to Super Admin">
+                                  <Lock className="w-3 h-3" /> Super Admin
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Payment Verification Remarks Modal */}
           {paymentVerifyModal && (
@@ -3340,6 +3704,345 @@ export default function AdminPage({ initialPanel }) {
                   >
                     Cancel
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Soft Delete Order Confirmation Modal */}
+          {deleteOrderModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-lg w-full p-6 space-y-4 border border-red-300 dark:border-red-900 shadow-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-red-100 dark:bg-red-950/50 text-red-600">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="brand-font text-lg font-bold text-red-600 dark:text-red-400">
+                      Confirm Order Deletion
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Order ID: <strong className="font-mono text-forest-green dark:text-gold">{deleteOrderModal.order.id}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Customer Name:</span>
+                    <strong className="text-gray-800 dark:text-gray-200">{deleteOrderModal.order.name}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Mobile:</span>
+                    <span className="font-mono text-gray-700 dark:text-gray-300">+91 {deleteOrderModal.order.mobile}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Product / Quantity:</span>
+                    <span className="font-semibold text-gray-800 dark:text-gray-200">{deleteOrderModal.order.product} (×{deleteOrderModal.order.qty})</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Order Amount:</span>
+                    <strong className="text-forest-green dark:text-gold text-sm">₹{deleteOrderModal.order.total?.toLocaleString('en-IN')}</strong>
+                  </div>
+                  {deleteOrderModal.order.address && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Delivery Address:</span>
+                      <span className="text-right text-gray-700 dark:text-gray-300 max-w-[65%]">{deleteOrderModal.order.address}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Soft Deletion & Audit Policy:
+                  </p>
+                  <p>
+                    This order will be moved to <strong>Trash</strong>. It is immediately excluded from active orders, customer dashboards, and business sales reports, and removed from the Google Drive daily Excel sheet. Admin and Super Admin can restore it anytime.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 dark:text-gray-300 mb-1">
+                    Reason for Deletion (Recorded in Audit Log)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Customer cancelled order / Test order cleanup / Duplicate order"
+                    value={deleteReasonInput}
+                    onChange={(e) => setDeleteReasonInput(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteOrderModal(null);
+                      setDeleteReasonInput('');
+                    }}
+                    disabled={deletingOrder}
+                    className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteOrder}
+                    disabled={deletingOrder}
+                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deletingOrder ? 'Deleting...' : 'Confirm Soft Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Permanent Delete Order Confirmation Modal (Super Admin Only) */}
+          {permanentDeleteModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-lg w-full p-6 space-y-4 border-2 border-red-600 shadow-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-red-600 text-white">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="brand-font text-lg font-bold text-red-600">
+                      PERMANENT PURGE (Super Admin Only)
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Order ID: <strong className="font-mono text-gray-800 dark:text-gray-200">{permanentDeleteModal.order.id}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 space-y-2 text-xs">
+                  <p className="font-bold text-red-700 dark:text-red-400">
+                    ⚠️ WARNING: THIS ACTION CANNOT BE UNDONE!
+                  </p>
+                  <p className="text-gray-700 dark:text-gray-300">
+                    The order document will be permanently eradicated from the database. An immutable audit record will remain in <code>OrderAuditLog</code> for legal tracking.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-gray-100 dark:bg-dark-bg text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Customer:</span>
+                    <strong className="text-gray-800 dark:text-gray-200">{permanentDeleteModal.order.name} (+91 {permanentDeleteModal.order.mobile})</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total:</span>
+                    <strong className="text-red-600 font-bold">₹{permanentDeleteModal.order.total?.toLocaleString('en-IN')}</strong>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPermanentDeleteModal(null)}
+                    disabled={permanentlyDeleting}
+                    className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePermanentDelete}
+                    disabled={permanentlyDeleting}
+                    className="px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {permanentlyDeleting ? 'Purging...' : 'Permanently Purge Order'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Test Records Inspection & Safe Cleanup Modal */}
+          {testPreviewModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-4xl w-full p-6 space-y-5 border border-gold shadow-2xl max-h-[90vh] flex flex-col">
+                <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-dark-border">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400">
+                      <Database className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="brand-font text-xl font-bold text-forest-green dark:text-gold-light">
+                        Testing Records Inspection & Safe Cleanup
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Identify simulation test records while strictly protecting authentic customer orders.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setTestPreviewModal(false)}
+                    className="p-2 text-gray-400 hover:text-gray-600 rounded-lg cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {loadingTestPreview ? (
+                  <div className="py-16 text-center">
+                    <RefreshCw className="w-8 h-8 animate-spin mx-auto text-gold mb-3" />
+                    <p className="text-xs text-gray-500">Analyzing database records...</p>
+                  </div>
+                ) : testPreviewData ? (
+                  <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                    {/* Protected Legitimate Orders Callout */}
+                    <div className="p-4 rounded-2xl bg-emerald/10 border border-emerald/30 space-y-2">
+                      <div className="flex items-center gap-2 text-emerald font-bold text-xs uppercase tracking-wider">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Protected Legitimate Customer Orders ({testPreviewData.protectedOrders?.length || 0})</span>
+                      </div>
+                      <p className="text-xs text-gray-600 dark:text-gray-300">
+                        These verified real customer records are <strong>STRICTLY PROTECTED</strong> and will never be touched or removed during cleanup:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {testPreviewData.protectedOrders?.map((po, idx) => (
+                          <div key={idx} className="p-2.5 rounded-xl bg-white dark:bg-dark-card border border-emerald/20 text-xs flex justify-between items-center">
+                            <div>
+                              <span className="font-mono font-bold text-forest-green dark:text-gold">{po.id}</span> &bull; <strong>{po.name}</strong>
+                              <div className="text-[11px] text-gray-400 font-mono">+91 {po.mobile} &bull; {po.product}</div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald text-white text-[10px] font-bold">
+                              PROTECTED
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Test Records Overview Counters */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-center">
+                        <span className="text-[11px] text-gray-500 uppercase block font-semibold">Test Orders</span>
+                        <strong className="text-xl text-amber-600 font-bold">{testPreviewData.summary?.testOrdersCount || 0}</strong>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-center">
+                        <span className="text-[11px] text-gray-500 uppercase block font-semibold">Test POS Sales</span>
+                        <strong className="text-xl text-amber-600 font-bold">{testPreviewData.summary?.testSalesCount || 0}</strong>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-center">
+                        <span className="text-[11px] text-gray-500 uppercase block font-semibold">Test Revenue</span>
+                        <strong className="text-xl text-forest-green dark:text-gold font-bold">₹{testPreviewData.summary?.testOrdersTotal?.toLocaleString('en-IN') || 0}</strong>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-center">
+                        <span className="text-[11px] text-gray-500 uppercase block font-semibold">Protected Real</span>
+                        <strong className="text-xl text-emerald font-bold">{testPreviewData.summary?.protectedOrdersCount || 0}</strong>
+                      </div>
+                    </div>
+
+                    {/* Test Orders Table */}
+                    <div className="space-y-2">
+                      <h4 className="font-bold text-xs uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                        Identified Test Orders Preview ({testPreviewData.testOrders?.length || 0})
+                      </h4>
+                      <div className="border border-gray-200 dark:border-dark-border rounded-2xl overflow-hidden max-h-60 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-gray-100 dark:bg-dark-border text-gray-700 dark:text-gray-300 font-bold sticky top-0">
+                            <tr>
+                              <th className="p-2.5">ID</th>
+                              <th className="p-2.5">Customer</th>
+                              <th className="p-2.5">Mobile</th>
+                              <th className="p-2.5">Amount</th>
+                              <th className="p-2.5">Flag Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                            {testPreviewData.testOrders?.map((t, i) => (
+                              <tr key={i} className="hover:bg-amber-500/5">
+                                <td className="p-2 font-mono font-bold text-forest-green dark:text-gold">{t.id}</td>
+                                <td className="p-2">{t.name}</td>
+                                <td className="p-2 font-mono">{t.mobile}</td>
+                                <td className="p-2 font-semibold">₹{t.total}</td>
+                                <td className="p-2">
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-medium">
+                                    {t.reason}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Test Sales Table */}
+                    {testPreviewData.testSales?.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-xs uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                          Identified Test POS Sales Preview ({testPreviewData.testSales?.length})
+                        </h4>
+                        <div className="border border-gray-200 dark:border-dark-border rounded-2xl overflow-hidden max-h-40 overflow-y-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-gray-100 dark:bg-dark-border text-gray-700 dark:text-gray-300 font-bold sticky top-0">
+                              <tr>
+                                <th className="p-2">Invoice</th>
+                                <th className="p-2">Customer / Shop</th>
+                                <th className="p-2">Amount</th>
+                                <th className="p-2">Flag Reason</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
+                              {testPreviewData.testSales.map((s, i) => (
+                                <tr key={i} className="hover:bg-amber-500/5">
+                                  <td className="p-2 font-mono font-bold">{s.invoiceNo}</td>
+                                  <td className="p-2">{s.customerName}</td>
+                                  <td className="p-2 font-semibold">₹{s.finalAmount}</td>
+                                  <td className="p-2">
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium">
+                                      {s.reason}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className="pt-3 border-t border-gray-200 dark:border-dark-border flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setTestPreviewModal(false)}
+                    className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmTestCleanup('soft')}
+                      disabled={cleaningTestRecords}
+                      className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {cleaningTestRecords ? 'Cleaning...' : 'Soft Delete to Trash'}
+                    </button>
+
+                    {isSuperAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmTestCleanup('permanent')}
+                        disabled={cleaningTestRecords}
+                        className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                      >
+                        <ShieldAlert className="w-4 h-4" />
+                        {cleaningTestRecords ? 'Purging...' : 'Permanently Purge All Test Data'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

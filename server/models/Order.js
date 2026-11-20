@@ -61,6 +61,17 @@ const orderSchema = new mongoose.Schema({
   time: { type: String },
   dateTime: { type: String },
   notes: { type: String },
+  isDeleted: { type: Boolean, default: false, index: true },
+  deletedAt: { type: Date },
+  deletedBy: {
+    id: { type: String },
+    name: { type: String },
+    role: { type: String },
+    email: { type: String }
+  },
+  deletionReason: { type: String },
+  isTest: { type: Boolean, default: false, index: true },
+  testReason: { type: String },
   googleDriveExport: {
     status: {
       type: String,

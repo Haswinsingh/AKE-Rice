@@ -24,6 +24,10 @@ router.post('/drive-backup/sync-current-month', requirePermission('reports'), ad
 router.post('/drive-backup/retry-failed', requirePermission('reports'), adminController.retryFailedDriveBackups);
 router.post('/drive-backup/export-historical', requirePermission('reports'), adminController.exportHistoricalDriveBackup);
 
+// Testing records preview and cleanup routes
+router.get('/test-records/preview', requirePermission('reports'), adminController.getTestRecordsPreview);
+router.post('/test-records/cleanup', requirePermission('reports'), adminController.cleanupTestRecords);
+
 // Inventory routes
 router.get('/inventory', requirePermission('inventory'), adminController.getInventory);
 router.get('/inventory/transactions', requirePermission('inventory'), adminController.getInventoryTransactions);

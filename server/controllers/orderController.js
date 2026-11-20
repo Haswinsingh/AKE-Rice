@@ -1,10 +1,12 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const OrderAuditLog = require('../models/OrderAuditLog');
 const { generateNextOrderId } = require('../services/orderIdService');
 const { generateWaTextForOrder, getWhatsAppUrl } = require('../services/whatsappService');
 const inventoryService = require('../services/inventoryService');
 const googleDriveService = require('../services/googleDriveService');
+const { isSuperAdminUser } = require('../middleware/authMiddleware');
 
 /**
  * Place a new order
@@ -189,6 +191,7 @@ exports.getOrders = async (req, res) => {
         return res.status(401).json({ success: false, message: 'Authentication required' });
       }
       query = {
+        isDeleted: { $ne: true },
         $or: [
           { customer: req.user._id },
           { mobile: req.user.mobile }
@@ -196,7 +199,17 @@ exports.getOrders = async (req, res) => {
       };
     } else {
       // Admin filters
-      const { status, paymentStatus, search, area, startDate, endDate } = req.query;
+      const { status, paymentStatus, search, area, startDate, endDate, trash, includeTest } = req.query;
+
+      if (trash === 'true') {
+        query.isDeleted = true;
+      } else {
+        query.isDeleted = { $ne: true };
+        if (includeTest !== 'true') {
+          query.isTest = { $ne: true };
+        }
+      }
+
       if (status && status !== 'all') query.status = status;
       if (paymentStatus && paymentStatus !== 'all') query.paymentStatus = paymentStatus;
       if (area && area !== 'all') query.area = new RegExp(area, 'i');
@@ -375,5 +388,243 @@ exports.verifyPayment = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to update payment verification', error: error.message });
+  }
+};
+
+/**
+ * Admin & Super Admin: Get soft-deleted orders (Trash bin)
+ */
+exports.getDeletedOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ isDeleted: true }).sort({ deletedAt: -1, createdAt: -1 });
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      orders
+    });
+  } catch (error) {
+    console.error('[OrderController] getDeletedOrders error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch deleted orders', error: error.message });
+  }
+};
+
+/**
+ * Admin & Super Admin: Soft delete order to Trash with audit logging
+ */
+exports.deleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+
+    const order = await Order.findOne({ id });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.isDeleted) {
+      return res.status(400).json({ success: false, message: 'Order is already in Trash' });
+    }
+
+    const deletionReason = (reason && reason.trim()) || 'Order deleted by administrator';
+
+    order.isDeleted = true;
+    order.deletedAt = new Date();
+    order.deletedBy = {
+      id: req.user._id ? req.user._id.toString() : req.user.id,
+      name: req.user.name || 'Admin',
+      role: req.user.role || 'admin',
+      email: req.user.email || ''
+    };
+    order.deletionReason = deletionReason;
+
+    await order.save();
+
+    // If order has un-restored inventory stock and is not cancelled, restore it
+    if (!order.stockRestored && order.status !== 'Cancelled') {
+      await inventoryService.restoreStockForOrder(
+        order,
+        req.user?.name || 'Admin',
+        `Order moved to trash: ${deletionReason}`
+      ).catch(e => console.error('[Inventory] Restore stock error on delete:', e));
+    }
+
+    // Record audit log
+    await OrderAuditLog.create({
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      orderId: order.id,
+      action: 'delete',
+      orderDetails: {
+        id: order.id,
+        customerName: order.name,
+        mobile: order.mobile,
+        address: order.address,
+        product: order.product,
+        qty: order.qty,
+        total: order.total,
+        date: order.date,
+        status: order.status,
+        paymentMethod: order.payment
+      },
+      performedBy: {
+        id: req.user._id ? req.user._id.toString() : req.user.id,
+        name: req.user.name || 'Admin',
+        role: req.user.role || 'admin',
+        email: req.user.email || '',
+        isSuperAdmin: isSuperAdminUser(req.user)
+      },
+      reason: deletionReason
+    }).catch(e => console.error('[OrderAuditLog] Create error:', e));
+
+    // Remove from Google Drive daily sheet and recalculate summaries
+    googleDriveService.removeOrderFromDrive(order.id, order.date || order.createdAt).catch(err => {
+      console.error('[GoogleDrive] Failed to remove deleted order from Drive:', err.message);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order ${order.id} has been moved to Trash.`,
+      order
+    });
+  } catch (error) {
+    console.error('[OrderController] deleteOrder error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete order', error: error.message });
+  }
+};
+
+/**
+ * Admin & Super Admin: Restore soft-deleted order from Trash
+ */
+exports.restoreOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await Order.findOne({ id });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!order.isDeleted) {
+      return res.status(400).json({ success: false, message: 'Order is not in Trash' });
+    }
+
+    order.isDeleted = false;
+    order.deletedAt = null;
+    order.deletedBy = null;
+    order.deletionReason = null;
+
+    await order.save();
+
+    // Re-deduct stock if needed
+    if (order.stockRestored && order.status !== 'Cancelled') {
+      await inventoryService.deductStockForOrder(
+        order,
+        req.user?.name || 'Admin'
+      ).catch(e => console.error('[Inventory] Re-deduct stock error on restore:', e));
+    }
+
+    // Record audit log
+    await OrderAuditLog.create({
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      orderId: order.id,
+      action: 'restore',
+      orderDetails: {
+        id: order.id,
+        customerName: order.name,
+        mobile: order.mobile,
+        address: order.address,
+        product: order.product,
+        qty: order.qty,
+        total: order.total,
+        date: order.date,
+        status: order.status,
+        paymentMethod: order.payment
+      },
+      performedBy: {
+        id: req.user._id ? req.user._id.toString() : req.user.id,
+        name: req.user.name || 'Admin',
+        role: req.user.role || 'admin',
+        email: req.user.email || '',
+        isSuperAdmin: isSuperAdminUser(req.user)
+      },
+      reason: 'Order restored from Trash'
+    }).catch(e => console.error('[OrderAuditLog] Create error:', e));
+
+    // Re-export order to Google Drive daily sheet
+    googleDriveService.exportOrder(order).catch(err => {
+      console.error('[GoogleDrive] Failed to restore order to Drive:', err.message);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order ${order.id} restored successfully.`,
+      order
+    });
+  } catch (error) {
+    console.error('[OrderController] restoreOrder error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to restore order', error: error.message });
+  }
+};
+
+/**
+ * Super Admin ONLY: Permanently delete order
+ */
+exports.permanentDeleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isSuperAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        code: 'SUPER_ADMIN_REQUIRED',
+        message: 'Forbidden. Permanent deletion requires Super Admin authorization.'
+      });
+    }
+
+    const order = await Order.findOne({ id });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Record audit log BEFORE permanently deleting
+    await OrderAuditLog.create({
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      orderId: order.id,
+      action: 'permanent_delete',
+      orderDetails: {
+        id: order.id,
+        customerName: order.name,
+        mobile: order.mobile,
+        address: order.address,
+        product: order.product,
+        qty: order.qty,
+        total: order.total,
+        date: order.date,
+        status: order.status,
+        paymentMethod: order.payment
+      },
+      performedBy: {
+        id: req.user._id ? req.user._id.toString() : req.user.id,
+        name: req.user.name || 'Super Admin',
+        role: req.user.role || 'admin',
+        email: req.user.email || '',
+        isSuperAdmin: true
+      },
+      reason: 'Permanently deleted by Super Admin'
+    }).catch(e => console.error('[OrderAuditLog] Create error:', e));
+
+    // Remove from Google Drive
+    googleDriveService.removeOrderFromDrive(order.id, order.date || order.createdAt).catch(err => {
+      console.error('[GoogleDrive] Failed to remove permanently deleted order from Drive:', err.message);
+    });
+
+    await Order.deleteOne({ id });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order ${order.id} permanently deleted from database.`
+    });
+  } catch (error) {
+    console.error('[OrderController] permanentDeleteOrder error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to permanently delete order', error: error.message });
   }
 };
