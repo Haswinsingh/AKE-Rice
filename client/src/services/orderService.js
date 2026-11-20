@@ -1,0 +1,23 @@
+import apiRequest from './api';
+
+export const orderService = {
+  createOrder: (orderData) => apiRequest('/orders', {
+    method: 'POST',
+    body: JSON.stringify(orderData)
+  }),
+  getOrders: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(`/orders${query ? `?${query}` : ''}`);
+  },
+  getOrderById: (id) => apiRequest(`/orders/${id}`),
+  updateStatus: (id, status, note) => apiRequest(`/orders/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status, note })
+  }),
+  verifyPayment: (id, action, remarks) => apiRequest(`/orders/${id}/payment`, {
+    method: 'PUT',
+    body: JSON.stringify({ action, remarks })
+  })
+};
+
+export default orderService;

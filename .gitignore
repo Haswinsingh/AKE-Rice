@@ -83,8 +83,5 @@ temp/
 tests/
 run-tests.bat
 
-# Frontend (Already deployed to https://ake-ricestore.vercel.app - excluded from backend repo)
-client/
-
 # Local Windows Launchers (Excluded for production deployment)
 *.bat
