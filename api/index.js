@@ -1,13 +1,12 @@
 const app = require('../server/server');
 const { connectDB } = require('../server/config/db');
-
-let isDbConnected = false;
+const mongoose = require('mongoose');
 
 module.exports = async (req, res) => {
-  if (!isDbConnected) {
+  // Ensure database connection is active for each serverless invocation
+  if (!mongoose.connection || mongoose.connection.readyState !== 1) {
     try {
       await connectDB();
-      isDbConnected = true;
     } catch (err) {
       console.error('[Vercel Serverless DB Error]:', err.message);
     }

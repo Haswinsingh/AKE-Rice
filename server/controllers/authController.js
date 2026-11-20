@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const Otp = require('../models/Otp');
 const otpService = require('../services/otpService');
 const { isSuperAdminUser } = require('../middleware/authMiddleware');
 
@@ -76,6 +77,7 @@ function signToken(user) {
 /**
  * Send 4-Digit OTP to registered Admin or Customer email address via Gmail SMTP
  * Unified endpoint for both Administrators and Customers.
+ * Uses persistent MongoDB Otp collection for full Vercel Serverless compatibility.
  */
 exports.sendOtp = async (req, res) => {
   try {
@@ -89,9 +91,10 @@ exports.sendOtp = async (req, res) => {
     }
 
     let user = null;
+    let normalizedEmail = '';
 
     if (email) {
-      const normalizedEmail = email.toString().trim().toLowerCase();
+      normalizedEmail = email.toString().trim().toLowerCase();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(normalizedEmail)) {
         return res.status(400).json({
@@ -134,10 +137,11 @@ exports.sendOtp = async (req, res) => {
           message: 'No registered email address found for this account. Please sign in with your email address.'
         });
       }
+      normalizedEmail = user.email.toLowerCase().trim();
     }
 
     // Check if account is disabled
-    if (user.status === 'Disabled') {
+    if (user && user.status === 'Disabled') {
       return res.status(403).json({
         success: false,
         message: user.role === 'pos_staff'
@@ -148,8 +152,23 @@ exports.sendOtp = async (req, res) => {
       });
     }
 
-    // Enforce 30-second resend cooldown
-    if (user.otp && user.otp.lastSentAt && otpService.isCooldownActive(user.otp.lastSentAt)) {
+    // 1. Check 30-second resend cooldown against persistent Otp collection
+    const activeOtpDoc = await Otp.findOne({
+      email: normalizedEmail,
+      verified: false
+    }).sort({ createdAt: -1 });
+
+    if (activeOtpDoc && activeOtpDoc.lastSentAt && otpService.isCooldownActive(activeOtpDoc.lastSentAt)) {
+      const remaining = otpService.getRemainingCooldown(activeOtpDoc.lastSentAt);
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${remaining} seconds before requesting a new OTP.`,
+        remainingSeconds: remaining
+      });
+    }
+
+    // Fallback cooldown check on user.otp if Otp collection had no record
+    if (user && user.otp && user.otp.lastSentAt && otpService.isCooldownActive(user.otp.lastSentAt)) {
       const remaining = otpService.getRemainingCooldown(user.otp.lastSentAt);
       return res.status(429).json({
         success: false,
@@ -158,15 +177,15 @@ exports.sendOtp = async (req, res) => {
       });
     }
 
-    // Dispatch 4-digit OTP via Gmail SMTP using Nodemailer
+    // 2. Dispatch 4-digit OTP via Gmail SMTP using Nodemailer
     const sendResult = await otpService.sendAdminOtp({
-      email: user.email,
-      name: user.name,
-      role: user.role
+      email: normalizedEmail,
+      name: user ? user.name : normalizedEmail.split('@')[0],
+      role: user ? user.role : 'customer'
     });
 
     if (!sendResult.success) {
-      console.error(`[AuthController] Email OTP dispatch failed for ${user.email}:`, sendResult.error);
+      console.error(`[AuthController] Email OTP dispatch failed for ${normalizedEmail}:`, sendResult.error);
       return res.status(502).json({
         success: false,
         message: sendResult.error
@@ -175,26 +194,47 @@ exports.sendOtp = async (req, res) => {
       });
     }
 
-    // Record session metadata with bcrypt-hashed OTP
-    user.otp = {
-      code: sendResult.hashedCode,
-      lastSentAt: new Date(),
-      attempts: 0,
-      expiresAt: new Date(Date.now() + otpService.OTP_EXPIRY_MINUTES * 60 * 1000)
-    };
-    await user.save();
+    // 3. Invalidate any previous active OTPs for this email to enforce single-active OTP
+    await Otp.deleteMany({ email: normalizedEmail });
 
-    const masked = maskEmail(user.email);
+    // 4. Persist new OTP record to persistent MongoDB Otp collection
+    const expiresAt = new Date(Date.now() + otpService.OTP_EXPIRY_MINUTES * 60 * 1000);
+    await Otp.create({
+      email: normalizedEmail,
+      otpHash: sendResult.hashedCode,
+      purpose: user && user.role === 'admin' ? 'admin_login' : 'login',
+      attempts: 0,
+      verified: false,
+      lastSentAt: new Date(),
+      expiresAt
+    });
+
+    // 5. Also record session metadata on user document for backward compatibility
+    if (user) {
+      try {
+        user.otp = {
+          code: sendResult.hashedCode,
+          lastSentAt: new Date(),
+          attempts: 0,
+          expiresAt
+        };
+        await user.save();
+      } catch (saveErr) {
+        // Non-blocking: persistent Otp collection is the authoritative storage
+      }
+    }
+
+    const masked = maskEmail(normalizedEmail);
 
     // Strictly return success WITHOUT exposing the plain OTP anywhere in the response in production
     return res.status(200).json({
       success: true,
       message: `Verification code sent to ${masked}`,
-      email: user.email,
+      email: normalizedEmail,
       maskedEmail: masked,
       cooldownSeconds: otpService.OTP_RESEND_COOLDOWN_SECONDS,
       expiryMinutes: otpService.OTP_EXPIRY_MINUTES,
-      accountType: user.role,
+      accountType: user ? user.role : 'customer',
       ...(process.env.NODE_ENV !== 'production' && sendResult.mock ? { mockOtp: sendResult.code } : {})
     });
   } catch (error) {
@@ -209,11 +249,11 @@ exports.sendOtp = async (req, res) => {
 
 /**
  * Verify 4-Digit OTP and authenticate Administrator or Customer
- * Validates entered OTP against stored bcrypt hash.
+ * Validates entered OTP against stored bcrypt hash in MongoDB Otp collection.
  */
 exports.verifyOtp = async (req, res) => {
   try {
-    let { email, mobile, otp } = req.body;
+    let { email, mobile, otp, name } = req.body;
 
     if ((!email && !mobile) || !otp) {
       return res.status(400).json({
@@ -230,20 +270,131 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    let user = null;
+    let normalizedEmail = '';
     if (email) {
-      const normalizedEmail = email.toString().trim().toLowerCase();
-      user = await User.findOne({ email: normalizedEmail });
+      normalizedEmail = email.toString().trim().toLowerCase();
     } else if (mobile) {
       let cleanMobile = mobile.toString().trim().replace(/\D/g, '');
       if (cleanMobile.length > 10) cleanMobile = cleanMobile.slice(-10);
-      user = await User.findOne({ mobile: cleanMobile });
+      const userByMobile = await User.findOne({ mobile: cleanMobile });
+      if (userByMobile && userByMobile.email) {
+        normalizedEmail = userByMobile.email.toLowerCase().trim();
+      } else {
+        return res.status(401).json({
+          success: false,
+          message: 'No account found for this mobile number.'
+        });
+      }
     }
 
-    if (!user) {
-      return res.status(401).json({
+    // 1. Locate the active OTP request in persistent MongoDB Otp collection
+    let otpRecord = await Otp.findOne({
+      email: normalizedEmail,
+      verified: false
+    }).sort({ createdAt: -1 });
+
+    // Fallback check on User.otp if Otp collection record was not found
+    let user = await User.findOne({ email: normalizedEmail });
+
+    let storedHashedOtp = null;
+    let otpAttempts = 0;
+    let otpExpiresAt = null;
+
+    if (otpRecord) {
+      storedHashedOtp = otpRecord.otpHash;
+      otpAttempts = otpRecord.attempts || 0;
+      otpExpiresAt = otpRecord.expiresAt;
+    } else if (user && user.otp && user.otp.code) {
+      storedHashedOtp = user.otp.code;
+      otpAttempts = user.otp.attempts || 0;
+      otpExpiresAt = user.otp.expiresAt;
+    }
+
+    // Strictly ensure an active OTP request exists (prevents OTP reuse and unrequested verifications)
+    if (!storedHashedOtp) {
+      return res.status(400).json({
         success: false,
-        message: 'Account not found or unauthorized.'
+        message: 'No active OTP request found for this account. Please request a new verification code.'
+      });
+    }
+
+    // 2. Check expiration (5 minutes)
+    if (otpExpiresAt && new Date() > new Date(otpExpiresAt)) {
+      if (otpRecord) {
+        await Otp.deleteOne({ _id: otpRecord._id });
+      }
+      if (user) {
+        user.otp = undefined;
+        try { await user.save(); } catch (e) {}
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired (valid for 5 minutes). Please request a new verification code.'
+      });
+    }
+
+    // 3. Check rate limit: maximum 5 attempts per OTP session
+    if (otpAttempts >= otpService.MAX_ATTEMPTS) {
+      if (otpRecord) {
+        await Otp.deleteOne({ _id: otpRecord._id });
+      }
+      if (user) {
+        user.otp = undefined;
+        try { await user.save(); } catch (e) {}
+      }
+      return res.status(429).json({
+        success: false,
+        message: 'Maximum incorrect attempts exceeded. This OTP has been invalidated for security. Please request a new verification code.'
+      });
+    }
+
+    // 4. Verify OTP against stored bcrypt hash
+    const isValid = await otpService.verifyHashedOtp(cleanOtp, storedHashedOtp);
+
+    if (!isValid) {
+      const newAttempts = otpAttempts + 1;
+      const remainingAttempts = Math.max(0, otpService.MAX_ATTEMPTS - newAttempts);
+
+      if (otpRecord) {
+        if (remainingAttempts === 0) {
+          await Otp.deleteOne({ _id: otpRecord._id });
+        } else {
+          await Otp.findByIdAndUpdate(otpRecord._id, { $set: { attempts: newAttempts } });
+        }
+      }
+
+      if (user) {
+        if (remainingAttempts === 0) {
+          user.otp = undefined;
+        } else if (user.otp) {
+          user.otp.attempts = newAttempts;
+        }
+        try { await user.save(); } catch (e) {}
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: remainingAttempts > 0
+          ? `Invalid verification code. ${remainingAttempts} attempt(s) remaining.`
+          : 'Maximum attempts exceeded. This OTP has been invalidated. Please request a new verification code.'
+      });
+    }
+
+    // 5. Verification successful! Invalidate OTP immediately to enforce single-use
+    if (otpRecord) {
+      await Otp.deleteMany({ email: normalizedEmail });
+    }
+
+    // 6. Look up or auto-create User account
+    if (!user) {
+      user = new User({
+        id: `cust_${Date.now()}`,
+        name: name || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        role: 'customer',
+        status: 'Active',
+        emailVerified: true,
+        authProvider: 'otp'
       });
     }
 
@@ -256,55 +407,6 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    // Strictly ensure an active OTP request exists (prevents OTP reuse and unrequested verifications)
-    if (!user.otp || !user.otp.code) {
-      return res.status(400).json({
-        success: false,
-        message: 'No active OTP request found for this account. Please request a new verification code.'
-      });
-    }
-
-    // Check expiration (5 minutes)
-    if (user.otp.expiresAt && new Date() > new Date(user.otp.expiresAt)) {
-      user.otp = undefined;
-      await user.save();
-      return res.status(400).json({
-        success: false,
-        message: 'OTP has expired (valid for 5 minutes). Please request a new verification code.'
-      });
-    }
-
-    // Check rate limit: maximum 5 attempts per OTP session
-    if (user.otp.attempts >= otpService.MAX_ATTEMPTS) {
-      user.otp = undefined;
-      await user.save();
-      return res.status(429).json({
-        success: false,
-        message: 'Maximum incorrect attempts exceeded. This OTP has been invalidated for security. Please request a new verification code.'
-      });
-    }
-
-    // Verify OTP against stored bcrypt hash
-    const verifyResult = await otpService.verifyAdminOtp(cleanOtp, user.otp.code);
-
-    if (!verifyResult.success) {
-      user.otp.attempts = (user.otp.attempts || 0) + 1;
-      const remainingAttempts = Math.max(0, otpService.MAX_ATTEMPTS - user.otp.attempts);
-
-      if (remainingAttempts === 0) {
-        user.otp = undefined;
-      }
-      await user.save();
-
-      return res.status(400).json({
-        success: false,
-        message: remainingAttempts > 0
-          ? `Invalid verification code. ${remainingAttempts} attempt(s) remaining.`
-          : 'Maximum attempts exceeded. This OTP has been invalidated. Please request a new verification code.'
-      });
-    }
-
-    // Verification successful! Clear OTP session immediately to enforce single-use
     user.otp = undefined;
     user.emailVerified = true;
     user.lastLogin = new Date();
@@ -319,7 +421,7 @@ exports.verifyOtp = async (req, res) => {
       token,
       role: user.role,
       user: {
-        id: user._id,
+        id: user._id || user.id,
         name: user.name,
         username: user.username,
         email: user.email,

@@ -73,7 +73,9 @@ function createModel(collectionName, mongooseModel) {
     try {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
-      console.error(`[DataStore Error] Failed writing ${collectionName}:`, e.message);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[DataStore Notice] Could not write ${collectionName} to local file:`, e.message);
+      }
     }
   };
 
@@ -169,10 +171,28 @@ function createModel(collectionName, mongooseModel) {
 
     async save() {
       if (getMongooseConnected()) {
-        const doc = new mongooseModel(this.toObject());
-        const res = await doc.save();
-        Object.assign(this, res.toObject());
-        return this;
+        const plain = this.toObject();
+        if (this._isPersisted || (this._id && !this._isNew)) {
+          const res = await mongooseModel.findByIdAndUpdate(this._id, plain, { new: true, upsert: true });
+          if (res) Object.assign(this, res.toObject ? res.toObject() : res);
+          return this;
+        }
+        try {
+          const doc = new mongooseModel(plain);
+          const res = await doc.save();
+          this._isPersisted = true;
+          this._isNew = false;
+          Object.assign(this, res.toObject ? res.toObject() : res);
+          return this;
+        } catch (saveErr) {
+          if (saveErr.code === 11000 && this._id) {
+            const res = await mongooseModel.findByIdAndUpdate(this._id, plain, { new: true });
+            if (res) Object.assign(this, res.toObject ? res.toObject() : res);
+            this._isPersisted = true;
+            return this;
+          }
+          throw saveErr;
+        }
       }
 
       const list = readData();
