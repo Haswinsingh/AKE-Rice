@@ -72,26 +72,43 @@ function matchesQuery(item, query = {}) {
 function createModel(collectionName, mongooseModel) {
   const filePath = path.join(DATA_DIR, `${collectionName}.json`);
 
+  global._inMemoryCollections = global._inMemoryCollections || {};
+
   const readData = () => {
-    try {
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, '[]', 'utf-8');
-        return [];
-      }
-      const raw = fs.readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
-      return JSON.parse(raw || '[]');
-    } catch (e) {
-      return [];
+    if (global._inMemoryCollections[collectionName]) {
+      return global._inMemoryCollections[collectionName];
     }
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
+        const parsed = JSON.parse(raw || '[]');
+        global._inMemoryCollections[collectionName] = parsed;
+        return parsed;
+      }
+    } catch (e) {}
+
+    if (filePath !== path.join(SEED_DIR, `${collectionName}.json`)) {
+      try {
+        const seedPath = path.join(SEED_DIR, `${collectionName}.json`);
+        if (fs.existsSync(seedPath)) {
+          const raw = fs.readFileSync(seedPath, 'utf-8').replace(/^\uFEFF/, '');
+          const parsed = JSON.parse(raw || '[]');
+          global._inMemoryCollections[collectionName] = parsed;
+          return parsed;
+        }
+      } catch (e) {}
+    }
+
+    global._inMemoryCollections[collectionName] = [];
+    return [];
   };
 
   const writeData = (data) => {
+    global._inMemoryCollections[collectionName] = data;
     try {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn(`[DataStore Notice] Could not write ${collectionName} to local file:`, e.message);
-      }
+      // Non-fatal on serverless environments
     }
   };
 
