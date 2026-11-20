@@ -901,7 +901,7 @@ exports.updateAdminUser = async (req, res) => {
     // Case 4: Super Admin Protection from modification or demotion
     if (isSuperAdminUser(targetUser)) {
       if (name && name.trim() !== targetUser.name) {
-        return res.status(400).json({ success: false, message: 'Super Admin account (Kavin, +91 8489107668) is protected and cannot be modified.' });
+        return res.status(400).json({ success: false, message: 'Super Admin account is protected and cannot be modified.' });
       }
       if (mobile && normalizeIndianMobile(mobile) !== targetUser.mobile) {
         return res.status(400).json({ success: false, message: 'Super Admin mobile number is protected and cannot be modified.' });
@@ -910,7 +910,7 @@ exports.updateAdminUser = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Super Admin role is protected and cannot be demoted.' });
       }
       if (status && status === 'Disabled') {
-        return res.status(400).json({ success: false, message: 'Primary founder accounts cannot be disabled.' });
+        return res.status(400).json({ success: false, message: 'Super Admin account cannot be disabled.' });
       }
     }
 
@@ -1071,7 +1071,7 @@ exports.deleteAdminUser = async (req, res) => {
 
     // Case 4: Prevent deleting primary founder / Super Admin accounts
     if (isSuperAdminUser(targetUser)) {
-      return res.status(400).json({ success: false, message: 'Super Admin accounts (Kavin, +91 8489107668) are protected and cannot be deleted.' });
+      return res.status(400).json({ success: false, message: 'Super Admin account is protected and cannot be deleted.' });
     }
 
     // Prevent deleting self
@@ -1113,9 +1113,9 @@ exports.updateAdminUserStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: 'You cannot disable your own administrator account.' });
     }
 
-    // Prevent disabling primary founder accounts
-    if (['Kavin', 'Ashok Kumar'].includes(targetUser.name) && status === 'Disabled') {
-      return res.status(400).json({ success: false, message: 'Primary administrator accounts cannot be disabled.' });
+    // Prevent disabling Super Admin account
+    if (isSuperAdminUser(targetUser) && status === 'Disabled') {
+      return res.status(400).json({ success: false, message: 'Super Admin account cannot be disabled.' });
     }
 
     targetUser.status = status;

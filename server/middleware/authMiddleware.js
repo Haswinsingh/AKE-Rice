@@ -54,15 +54,20 @@ const verifyToken = async (req, res, next) => {
 
 function isSuperAdminUser(user) {
   if (!user) return false;
-  const founderNames = ['Kavin', 'Ashok Kumar'];
-  const founderMobiles = ['8489107668'];
-  const founderEmails = ['kaviyansellappan15@gmail.com'];
-  return (
-    user.isSuperAdmin === true ||
-    founderNames.includes(user.name) ||
-    founderMobiles.includes(user.mobile) ||
-    founderEmails.includes(user.email)
-  );
+  const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+  const userEmail = (user.email || '').toLowerCase().trim();
+
+  // 1. Explicit match with designated Super Admin email
+  if (userEmail === superAdminEmail || userEmail === 'akerice1527@gmail.com') {
+    return true;
+  }
+
+  // 2. Database boolean flag, strictly ensuring demoted former super admin is excluded
+  if (user.isSuperAdmin === true && userEmail !== 'kaviyansellappan15@gmail.com') {
+    return true;
+  }
+
+  return false;
 }
 
 const requireAdmin = (req, res, next) => {

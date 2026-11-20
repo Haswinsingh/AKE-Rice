@@ -106,14 +106,19 @@ exports.sendOtp = async (req, res) => {
       // Check if user exists in database
       user = await User.findOne({ email: normalizedEmail });
 
-      // If user does not exist, automatically register as a Customer
-      // (Public admin registration is strictly disabled; admins are only added by Super Admin)
+      // If user does not exist, automatically register
+      // Designated Super Admin (akerice1527@gmail.com) is created as Super Admin
       if (!user) {
+        const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+        const isDesignatedSuper = normalizedEmail === superAdminEmail || normalizedEmail === 'akerice1527@gmail.com';
+
         user = new User({
-          id: `cust_${Date.now()}`,
-          name: normalizedEmail.split('@')[0],
+          id: isDesignatedSuper ? `admin_super_${Date.now()}` : `cust_${Date.now()}`,
+          name: isDesignatedSuper ? 'AKE Rice Super Admin' : normalizedEmail.split('@')[0],
           email: normalizedEmail,
-          role: 'customer',
+          role: isDesignatedSuper ? 'admin' : 'customer',
+          isSuperAdmin: isDesignatedSuper,
+          permissions: isDesignatedSuper ? { ...SUPER_ADMIN_PERMISSIONS } : undefined,
           status: 'Active',
           authProvider: 'otp'
         });

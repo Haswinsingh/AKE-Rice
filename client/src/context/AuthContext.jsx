@@ -139,10 +139,8 @@ export function AuthProvider({ children }) {
   const isPosStaff = user?.role === 'pos_staff';
   const isSuperAdmin = isAdmin && (
     user?.isSuperAdmin === true ||
-    ['Kavin', 'Ashok Kumar'].includes(user?.name) ||
-    ['8489107668'].includes(user?.mobile) ||
-    ['kaviyansellappan15@gmail.com'].includes(user?.email)
-  );
+    (user?.email && user.email.toLowerCase().trim() === 'akerice1527@gmail.com')
+  ) && (user?.email && user.email.toLowerCase().trim() !== 'kaviyansellappan15@gmail.com');
 
   const hasPermission = (permKey) => {
     if (!user) return false;

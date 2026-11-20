@@ -1113,8 +1113,8 @@ export default function AdminPage({ initialPanel }) {
   };
 
   const handleDeleteAdmin = async (targetAdmin) => {
-    if (['Kavin', 'Ashok Kumar'].includes(targetAdmin.name) || targetAdmin.mobile === '8489107668') {
-      showToast('Primary founder accounts cannot be deleted.', 'error');
+    if (targetAdmin.isSuperAdmin || (targetAdmin.email && targetAdmin.email.toLowerCase().trim() === 'akerice1527@gmail.com')) {
+      showToast('Super Admin account is protected and cannot be deleted.', 'error');
       return;
     }
     const isSelf = user?._id && (user._id.toString() === (targetAdmin._id || targetAdmin.id).toString());
@@ -1565,7 +1565,7 @@ export default function AdminPage({ initialPanel }) {
               {activePanel === 'sales-entry'
                 ? 'The Offline Sales Entry & POS Billing module is strictly restricted to administrator accounts that have been explicitly granted the sales_pos permission by the Super Admin.'
                 : 'Access to this management module is restricted by role-based administrator permissions.'}
-              {' '}Please contact the Super Admin (<strong>Kavin, +91 8489107668</strong>) to request access.
+              {' '}Please contact the Super Admin (<strong>akerice1527@gmail.com</strong>) to request access.
             </p>
           </div>
 
@@ -5032,7 +5032,7 @@ export default function AdminPage({ initialPanel }) {
                 <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
                   {adminUsers.length > 0 ? (
                     adminUsers.map(adm => {
-                      const isPrimary = ['Kavin', 'Ashok Kumar'].includes(adm.name) || adm.mobile === '8489107668';
+                      const isPrimary = adm.isSuperAdmin === true || (adm.email && adm.email.toLowerCase().trim() === 'akerice1527@gmail.com');
                       const isSelf = user?._id && (user._id.toString() === (adm._id || adm.id).toString());
                       const isDisabled = adm.status === 'Disabled';
                       const isVerified = adm.mobileVerified;
@@ -5847,7 +5847,7 @@ export default function AdminPage({ initialPanel }) {
             </div>
 
             {/* Super Admin Notice if applicable */}
-            {(permissionModal.admin.isSuperAdmin || ['Kavin', 'Ashok Kumar'].includes(permissionModal.admin.name) || permissionModal.admin.mobile === '8489107668') ? (
+            {(permissionModal.admin.isSuperAdmin || (permissionModal.admin.email && permissionModal.admin.email.toLowerCase().trim() === 'akerice1527@gmail.com')) ? (
               <div className="p-4 rounded-2xl bg-gold/10 border border-gold/40 text-xs text-gold-dark dark:text-gold-light flex items-center gap-3">
                 <Shield className="w-5 h-5 flex-shrink-0 text-gold" />
                 <div>
@@ -5989,7 +5989,7 @@ export default function AdminPage({ initialPanel }) {
               >
                 Cancel
               </button>
-              {!(permissionModal.admin.isSuperAdmin || ['Kavin', 'Ashok Kumar'].includes(permissionModal.admin.name) || permissionModal.admin.mobile === '8489107668') && (
+              {!(permissionModal.admin.isSuperAdmin || (permissionModal.admin.email && permissionModal.admin.email.toLowerCase().trim() === 'akerice1527@gmail.com')) && (
                 <button
                   type="button"
                   onClick={handleSavePermissions}

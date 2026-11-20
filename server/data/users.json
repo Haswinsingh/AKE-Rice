@@ -293,7 +293,7 @@
     "mobile": "8489107668",
     "email": "kaviyansellappan15@gmail.com",
     "role": "admin",
-    "isSuperAdmin": true,
+    "isSuperAdmin": false,
     "authProvider": "password",
     "lastLogin": "2026-11-20T05:10:13.252Z",
     "status": "Active",

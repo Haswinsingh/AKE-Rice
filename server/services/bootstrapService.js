@@ -1,60 +1,49 @@
 const User = require('../models/User');
 
 /**
- * Secure one-time initial Super Admin setup
- * Configures founder account from secure environment variables.
- * Once created, public registration is strictly disabled.
+ * Secure Super Admin Role Verification & Alignment
+ * Ensures only the designated Super Admin (akerice1527@gmail.com) holds the Super Admin role.
+ * Automatically demotes former Super Admin (kaviyansellappan15@gmail.com) to standard Admin.
+ * Does not create unauthenticated accounts with arbitrary passwords.
  */
 async function bootstrapAdmin() {
   try {
-    const adminName = (process.env.INITIAL_ADMIN_NAME || process.env.DEFAULT_ADMIN_USER || 'Kavin').trim();
-    let adminMobile = (process.env.INITIAL_ADMIN_MOBILE || process.env.DEFAULT_ADMIN_MOBILE || '8489107668').toString().trim().replace(/\D/g, '');
-    if (adminMobile.length > 10) adminMobile = adminMobile.slice(-10);
-    const adminEmail = (process.env.INITIAL_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'kaviyansellappan15@gmail.com').toLowerCase().trim();
+    const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
 
-    let admin = await User.findOne({ 
+    // 1. Ensure former Super Admin account (kaviyansellappan15@gmail.com / Kavin) is demoted to standard Admin
+    const formerSuperAdmin = await User.findOne({
       $or: [
-        { mobile: adminMobile },
-        { role: 'admin', name: adminName }
+        { email: 'kaviyansellappan15@gmail.com' },
+        { mobile: '8489107668', isSuperAdmin: true }
       ]
     });
 
-    if (!admin) {
-      admin = new User({
-        id: `admin_super_${adminMobile}`,
-        name: adminName,
-        username: adminName.toLowerCase().replace(/[^a-z0-9]/g, ''),
-        mobile: adminMobile,
-        email: adminEmail,
-        role: 'admin',
-        isSuperAdmin: true,
-        permissions: {
-          analytics: true,
-          inventory: true,
-          products: true,
-          sales_pos: true,
-          reports: true,
-          orders: true,
-          whatsapp_orders: true,
-          customers: true,
-          feedback: true,
-          admin_management: true,
-          settings: true
-        },
-        status: 'Active',
-        mobileVerified: true,
-        authProvider: 'otp'
-      });
-      await admin.save();
-      console.log(`[Bootstrap] Initial Super Admin seeded successfully: ${admin.name} (+91 ${admin.mobile})`);
-    } else {
+    if (formerSuperAdmin && formerSuperAdmin.isSuperAdmin === true) {
+      formerSuperAdmin.isSuperAdmin = false;
+      formerSuperAdmin.role = 'admin';
+      await formerSuperAdmin.save();
+      console.log(`[Bootstrap] Former Super Admin "${formerSuperAdmin.name}" (${formerSuperAdmin.email}) successfully demoted to standard Administrator.`);
+    }
+
+    // 2. Locate designated Super Admin account (akerice1527@gmail.com)
+    const targetSuperAdmin = await User.findOne({ email: superAdminEmail });
+
+    if (targetSuperAdmin) {
       let needsSave = false;
-      if (!admin.isSuperAdmin) {
-        admin.isSuperAdmin = true;
+      if (!targetSuperAdmin.isSuperAdmin) {
+        targetSuperAdmin.isSuperAdmin = true;
         needsSave = true;
       }
-      if (!admin.permissions || !admin.permissions.sales_pos) {
-        admin.permissions = {
+      if (targetSuperAdmin.role !== 'admin') {
+        targetSuperAdmin.role = 'admin';
+        needsSave = true;
+      }
+      if (targetSuperAdmin.status !== 'Active') {
+        targetSuperAdmin.status = 'Active';
+        needsSave = true;
+      }
+      if (!targetSuperAdmin.permissions || !targetSuperAdmin.permissions.pos_reports_all_staff) {
+        targetSuperAdmin.permissions = {
           analytics: true,
           inventory: true,
           products: true,
@@ -65,35 +54,24 @@ async function bootstrapAdmin() {
           customers: true,
           feedback: true,
           admin_management: true,
-          settings: true
+          settings: true,
+          pos_staff_management: true,
+          pos_reports: true,
+          pos_reports_all_staff: true
         };
         needsSave = true;
       }
-      if (admin.role !== 'admin') {
-        admin.role = 'admin';
-        needsSave = true;
-      }
-      if (admin.status !== 'Active') {
-        admin.status = 'Active';
-        needsSave = true;
-      }
-      if (!admin.mobileVerified) {
-        admin.mobileVerified = true;
-        needsSave = true;
-      }
-      if (!admin.mobile && adminMobile) {
-        admin.mobile = adminMobile;
-        needsSave = true;
-      }
       if (needsSave) {
-        await admin.save();
+        await targetSuperAdmin.save();
+        console.log(`[Bootstrap] Designated Super Admin "${targetSuperAdmin.name}" (${targetSuperAdmin.email}) verified and granted full Super Admin privileges.`);
       }
-      console.log(`[Bootstrap] Super Admin verified & active: ${admin.name} (+91 ${admin.mobile})`);
+      return targetSuperAdmin;
+    } else {
+      console.log(`[Bootstrap Notice] Designated Super Admin account (${superAdminEmail}) does not exist in the database yet. It must register first via secure OTP/Google authentication.`);
+      return null;
     }
-
-    return admin;
   } catch (error) {
-    console.error('[Bootstrap Error] Failed during Super Admin initialization:', error.message);
+    console.error('[Bootstrap Error] Failed during Super Admin alignment:', error.message);
   }
 }
 
