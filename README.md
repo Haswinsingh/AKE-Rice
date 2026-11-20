@@ -159,25 +159,22 @@ The backend features an intelligent dual-mode storage adapter (`server/config/mo
 
 > **Security Note**: Real `.env` files containing database passwords, SMTP credentials, and JWT keys are automatically ignored by `.gitignore` and will never be pushed to GitHub. Template files (`.env.example`, `server/.env.example`, `client/.env.example`) are safely tracked.
 
-### 2. Deploy Frontend to Vercel
-The frontend is built with React 18 & Vite, pre-configured for instant zero-configuration deployment to Vercel:
-- **Project Root**: Connect your GitHub repository to Vercel.
-- **Root Directory**: Leave as `./` (root `vercel.json` automatically builds `client/`) OR set to `client`.
-- **Framework Preset**: Vite
-- **Build Command**: `npm run build`
-- **Output Directory**: `dist` (or `client/dist` from root)
-- **Environment Variables**:
-  - `VITE_API_URL`: Set to your live backend API URL (e.g., `https://ake-rice-backend.onrender.com/api`).
-- **SPA Routing**: Handled automatically via `vercel.json` rewrites.
+### 2. Live Frontend Deployment
+The frontend is already live in production:
+- **Production URL**: `https://ake-ricestore.vercel.app/`
+- **Backend API Integration**: Connects via `VITE_API_URL` environment variable pointing to the deployed backend.
 
-### 3. Deploy Backend (Express + MongoDB)
-The backend REST API can be deployed on Render, Railway, Fly.io, or AWS:
-- **Build Command**: `npm install`
-- **Start Command**: `node server.js`
-- **Environment Variables**: Configure all variables documented in `server/.env.example` in your hosting dashboard:
+### 3. Deploy Backend to Vercel (Serverless REST API)
+The backend REST API in `server/` is pre-configured for Vercel Serverless deployment via `api/index.js` and `vercel.json`:
+- **Framework Preset**: Other
+- **Root Directory**: `./`
+- **Build Command**: `npm run build`
+- **Output Directory**: (leave empty / default)
+- **CORS Allowed Origin**: Automatically accepts requests from `https://ake-ricestore.vercel.app`
+- **Environment Variables**: Import all variables from `.env.vercel` or `server/.env.example` in Vercel Project Settings:
   - `MONGODB_URI`: Your production MongoDB Atlas connection string
   - `JWT_SECRET`: A secure random cryptographic key
-  - `CLIENT_URL`: Your Vercel frontend domain (e.g. `https://ake-rice.vercel.app`)
+  - `CLIENT_URL`: `https://ake-ricestore.vercel.app`
   - `SMTP_USER` & `SMTP_PASS`: Gmail App Password for customer OTPs
   - `UPI_ID`: Payment destination (`kaviyansellappan15@oksbi`)
 

@@ -3,17 +3,30 @@ const mongoose = require('mongoose');
 // Never buffer commands when MongoDB is disconnected
 mongoose.set('bufferCommands', false);
 
+let cachedConnection = null;
+
 const connectDB = async () => {
+  // If already connected, reuse existing connection
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+
+  // If connection is in progress, wait for it
+  if (mongoose.connection.readyState === 2 && cachedConnection) {
+    return cachedConnection;
+  }
+
   const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/ake_rice_db';
 
   try {
-    console.log(`[DB] Attempting connection to MongoDB at: ${uri}`);
-    await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 1500,
-      connectTimeoutMS: 1500,
+    console.log(`[DB] Connecting to MongoDB...`);
+    cachedConnection = mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
     });
+    await cachedConnection;
   } catch (err) {
-    // Handled below
+    console.error(`[DB Error]:`, err.message);
   }
 
   if (mongoose.connection.readyState === 1) {
@@ -24,9 +37,7 @@ const connectDB = async () => {
     console.log('[DB] Full MERN schema support & data persistence enabled.');
   }
 
-  mongoose.connection.on('error', (err) => {
-    // Silent catch
-  });
+  return mongoose.connection;
 };
 
 const closeDB = async () => {

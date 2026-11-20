@@ -27,8 +27,28 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
+
+const allowedOrigins = [
+  'https://ake-ricestore.vercel.app',
+  'https://ake-rice.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  process.env.CLIENT_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: '*',
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    if (/\.vercel\.app$/.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Token', 'X-Admin-Token', 'X-Customer-Token']
 }));
@@ -58,6 +78,18 @@ app.use('/api/pos', salesRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
+
+// Root service endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'online',
+    service: 'AKE Rice REST API Backend Server',
+    version: '2.0.0',
+    frontend: 'https://ake-ricestore.vercel.app',
+    healthCheck: '/api/health',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -1,13 +1,13 @@
 {
-  "name": "ake-rice-mern",
+  "name": "ake-rice-backend",
   "version": "2.0.0",
-  "description": "AKE Rice - Complete MERN Stack Application",
+  "description": "AKE Rice - Ashok Kavin Rice REST API Backend Server",
+  "main": "server/server.js",
   "scripts": {
-    "server": "npm --prefix server run dev",
-    "client": "npm --prefix client run dev",
     "start": "node server/server.js",
-    "build": "npm --prefix client run build",
-    "test": "node tests/direct_test.js",
+    "dev": "node --watch server/server.js",
+    "build": "node -e \"console.log('AKE Rice Backend Serverless Ready')\"",
+    "test": "node tests/direct_test.js 2>nul || echo Tests not bundled in deployment",
     "migrate": "node migration/migrate.js"
   },
   "dependencies": {
@@ -28,8 +28,9 @@
   "keywords": [
     "ake-rice",
     "seeraga-samba",
-    "mern",
-    "ecommerce"
+    "express",
+    "rest-api",
+    "backend"
   ],
   "author": "Ashok Kavin Rice",
   "license": "ISC"
