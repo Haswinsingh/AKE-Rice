@@ -33,6 +33,14 @@ export function AuthProvider({ children }) {
     }
 
     loadUser();
+
+    const handleUnauthorized = () => {
+      setUser(null);
+      setToken(null);
+      localStorage.removeItem('ake_token');
+    };
+    window.addEventListener('ake:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('ake:unauthorized', handleUnauthorized);
   }, []);
 
   // Send Email / Mobile OTP

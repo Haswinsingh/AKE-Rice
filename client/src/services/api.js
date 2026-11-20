@@ -34,6 +34,15 @@ export async function apiRequest(endpoint, options = {}) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
+      if (res.status === 401) {
+        // Clear stale token on 401 Unauthorized
+        try {
+          localStorage.removeItem('ake_token');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('ake:unauthorized', { detail: { endpoint, status: res.status, data } }));
+          }
+        } catch (e) {}
+      }
       const errorMsg = data.message || `Request failed with status ${res.status}`;
       const error = new Error(errorMsg);
       error.status = res.status;

@@ -1,5 +1,38 @@
 [
   {
+    "_id": "65f000000000000000000001",
+    "createdAt": "2026-11-20T00:00:00.000Z",
+    "updatedAt": "2026-11-20T00:00:00.000Z",
+    "id": "admin_super_akerice",
+    "name": "AKE Rice Super Admin",
+    "username": "superadmin_ake",
+    "email": "akerice1527@gmail.com",
+    "mobile": "9176049099",
+    "password": "$2b$10$nZnmT2N6v0j9zn0atIW5pOEZ07XpTFyx.1kGS0POHoymPJtkxtpgy",
+    "role": "admin",
+    "status": "Active",
+    "mobileVerified": true,
+    "emailVerified": true,
+    "authProvider": "otp",
+    "isSuperAdmin": true,
+    "permissions": {
+      "analytics": true,
+      "inventory": true,
+      "products": true,
+      "sales_pos": true,
+      "reports": true,
+      "orders": true,
+      "whatsapp_orders": true,
+      "customers": true,
+      "feedback": true,
+      "admin_management": true,
+      "settings": true,
+      "pos_staff_management": true,
+      "pos_reports": true,
+      "pos_reports_all_staff": true
+    }
+  },
+  {
     "_id": "09c2c22680d992282fc57787",
     "createdAt": "2026-11-20T03:56:59.563Z",
     "updatedAt": "2026-11-20T03:56:59.943Z",

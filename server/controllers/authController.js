@@ -61,12 +61,13 @@ function maskEmail(email) {
  * Generate JWT token
  */
 function signToken(user) {
+  const userId = (user._id ? user._id.toString() : null) || user.id;
   return jwt.sign(
     {
-      id: user._id || user.id,
+      id: userId,
       role: user.role,
       mobile: user.mobile,
-      email: user.email,
+      email: user.email ? user.email.toLowerCase().trim() : undefined,
       name: user.name
     },
     JWT_SECRET,
@@ -413,11 +414,17 @@ exports.verifyOtp = async (req, res) => {
 
     // 6. Look up or auto-create User account
     if (!user) {
+      const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+      const isDesignatedSuper = normalizedEmail === superAdminEmail || normalizedEmail === 'akerice1527@gmail.com';
+
       user = new User({
-        id: `cust_${Date.now()}`,
-        name: name || normalizedEmail.split('@')[0],
+        _id: isDesignatedSuper ? '65f000000000000000000001' : undefined,
+        id: isDesignatedSuper ? 'admin_super_akerice' : `cust_${Date.now()}`,
+        name: isDesignatedSuper ? 'AKE Rice Super Admin' : (name || normalizedEmail.split('@')[0]),
         email: normalizedEmail,
-        role: 'customer',
+        role: isDesignatedSuper ? 'admin' : 'customer',
+        isSuperAdmin: isDesignatedSuper,
+        permissions: isDesignatedSuper ? { ...SUPER_ADMIN_PERMISSIONS } : undefined,
         status: 'Active',
         emailVerified: true,
         authProvider: 'otp'
@@ -735,12 +742,18 @@ exports.passwordLogin = async (req, res) => {
  */
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password -otp');
+    let user = req.user;
+    if (!user && req.user?._id) {
+      user = await User.findById(req.user._id).select('-password -otp');
+    }
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     const isSuper = isSuperAdminUser(user);
-    const userObj = user._doc ? { ...user._doc } : { ...user };
+    const userObj = user._doc ? { ...user._doc } : (user.toObject ? user.toObject() : { ...user });
+    delete userObj.password;
+    delete userObj.otp;
+    userObj.id = userObj._id || userObj.id;
     if (user.role === 'admin') {
       userObj.isSuperAdmin = isSuper;
       userObj.permissions = isSuper 

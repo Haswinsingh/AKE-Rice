@@ -23,10 +23,48 @@ const verifyToken = async (req, res, next) => {
     const secret = process.env.JWT_SECRET || 'ake_rice_super_secure_jwt_secret_key_2026_@kavin#rice!';
     try {
       const decoded = jwt.verify(token, secret);
-      const user = await User.findById(decoded.id).select('-password');
+      if (!decoded) {
+        return res.status(401).json({ success: false, message: 'Session expired or invalid token. Please log in again.' });
+      }
+
+      // Robust user lookup: match by _id, custom id, email, or mobile from cryptographically verified token
+      let user = null;
+      if (decoded.id) {
+        user = await User.findOne({
+          $or: [
+            { _id: decoded.id },
+            { id: decoded.id }
+          ]
+        }).select('-password').catch(() => null);
+
+        if (!user) {
+          try {
+            user = await User.findById(decoded.id).select('-password');
+          } catch (castErr) {
+            user = null;
+          }
+        }
+      }
+
+      // If not located by ID, match by email or mobile from the verified JWT payload
+      if (!user && decoded.email) {
+        user = await User.findOne({ email: decoded.email.toString().toLowerCase().trim() }).select('-password').catch(() => null);
+      }
+      if (!user && decoded.mobile) {
+        user = await User.findOne({ mobile: decoded.mobile.toString().trim() }).select('-password').catch(() => null);
+      }
+
       if (!user) {
         return res.status(401).json({ success: false, message: 'User account no longer exists.' });
       }
+
+      if (user.status === 'Disabled' || user.isActive === false || user.isDeleted) {
+        return res.status(403).json({
+          success: false,
+          message: 'User account has been disabled or deactivated. Please contact administrator.'
+        });
+      }
+
       req.user = user;
       return next();
     } catch (jwtErr) {
