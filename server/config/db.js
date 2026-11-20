@@ -6,8 +6,10 @@ mongoose.set('bufferCommands', false);
 // Global connection cache for serverless environments (Vercel, AWS Lambda)
 let cached = global._mongooseCache;
 if (!cached) {
-  cached = global._mongooseCache = { conn: null, promise: null };
+  cached = global._mongooseCache = { conn: null, promise: null, lastError: null };
 }
+
+const getLastError = () => cached.lastError;
 
 const connectDB = async () => {
   // 1. If connection is already open and ready, return it immediately
@@ -23,7 +25,8 @@ const connectDB = async () => {
   const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/ake_rice_db';
 
   if (uri.includes('<db_username>')) {
-    console.warn('[DB Notice] Placeholder <db_username> detected in MONGODB_URI. Activating persistent local document store.');
+    cached.lastError = 'Placeholder <db_username> detected in MONGODB_URI environment variable.';
+    console.warn(`[DB Notice] ${cached.lastError} Activating persistent local document store.`);
     return mongoose.connection;
   }
 
@@ -40,11 +43,13 @@ const connectDB = async () => {
 
     cached.promise = mongoose.connect(uri, opts)
       .then((m) => {
+        cached.lastError = null;
         console.log(`[DB] Connected to MongoDB successfully: ${m.connection.host}/${m.connection.name}`);
         return m.connection;
       })
       .catch((err) => {
         cached.promise = null; // Clear so subsequent invocations can retry
+        cached.lastError = err.message;
         console.error('[DB Error]: Failed to connect to MongoDB:', err.message);
         return null;
       });
@@ -54,10 +59,12 @@ const connectDB = async () => {
     cached.conn = await cached.promise;
   } catch (err) {
     cached.promise = null;
+    cached.lastError = err.message;
     console.error('[DB Connect Await Error]:', err.message);
   }
 
   if (mongoose.connection.readyState === 1) {
+    cached.lastError = null;
     return mongoose.connection;
   } else {
     console.warn('[DB Notice] External MongoDB not active. Persistent local document store active.');
@@ -73,4 +80,4 @@ const closeDB = async () => {
   cached.promise = null;
 };
 
-module.exports = { connectDB, closeDB };
+module.exports = { connectDB, closeDB, getLastError };

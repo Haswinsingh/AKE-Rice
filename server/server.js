@@ -129,6 +129,35 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Diagnostic & Trace endpoint (safe, non-sensitive)
+app.get('/api/diagnostic', async (req, res) => {
+  const mongoose = require('mongoose');
+  const { getLastError } = require('./config/db');
+  const Otp = require('./models/Otp');
+  const otpCount = await Otp.countDocuments().catch(() => -1);
+  const stateNames = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const uri = process.env.MONGODB_URI || '';
+  
+  res.status(200).json({
+    status: 'online',
+    version: '2.0.2',
+    buildId: 'BUILD-OTP-DIAG-20261120',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    mongo: {
+      readyState: mongoose.connection ? mongoose.connection.readyState : 0,
+      readyStateText: stateNames[mongoose.connection ? mongoose.connection.readyState : 0] || 'unknown',
+      host: mongoose.connection ? mongoose.connection.host : null,
+      dbName: mongoose.connection ? mongoose.connection.name : null,
+      hasMongoUriEnv: !!process.env.MONGODB_URI,
+      isPlaceholderUri: uri.includes('<db_username>'),
+      lastConnectionError: getLastError()
+    },
+    otpsInCollection: otpCount,
+    models: mongoose.models ? Object.keys(mongoose.models) : []
+  });
+});
+
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error('[Global Error]:', err.stack);

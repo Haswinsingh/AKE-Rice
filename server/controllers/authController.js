@@ -199,7 +199,7 @@ exports.sendOtp = async (req, res) => {
 
     // 4. Persist new OTP record to persistent MongoDB Otp collection
     const expiresAt = new Date(Date.now() + otpService.OTP_EXPIRY_MINUTES * 60 * 1000);
-    await Otp.create({
+    const createdOtp = await Otp.create({
       email: normalizedEmail,
       otpHash: sendResult.hashedCode,
       purpose: user && user.role === 'admin' ? 'admin_login' : 'login',
@@ -208,6 +208,11 @@ exports.sendOtp = async (req, res) => {
       lastSentAt: new Date(),
       expiresAt
     });
+
+    const isRecordInDb = await Otp.findOne({ email: normalizedEmail, verified: false });
+    const mongoose = require('mongoose');
+
+    console.log(`[AUTH-DIAG] sendOtp completed: email=${normalizedEmail}, savedDoc=${!!createdOtp}, inDb=${!!isRecordInDb}, mongoReady=${mongoose.connection ? mongoose.connection.readyState : 0}, db=${mongoose.connection ? mongoose.connection.name : 'none'}`);
 
     // 5. Also record session metadata on user document for backward compatibility
     if (user) {
@@ -235,6 +240,13 @@ exports.sendOtp = async (req, res) => {
       cooldownSeconds: otpService.OTP_RESEND_COOLDOWN_SECONDS,
       expiryMinutes: otpService.OTP_EXPIRY_MINUTES,
       accountType: user ? user.role : 'customer',
+      diagnostic: {
+        email: normalizedEmail,
+        otpPersisted: !!createdOtp,
+        activeDocInDb: !!isRecordInDb,
+        mongoReady: mongoose.connection ? mongoose.connection.readyState === 1 : false,
+        dbName: mongoose.connection ? mongoose.connection.name : null
+      },
       ...(process.env.NODE_ENV !== 'production' && sendResult.mock ? { mockOtp: sendResult.code } : {})
     });
   } catch (error) {
@@ -312,9 +324,18 @@ exports.verifyOtp = async (req, res) => {
 
     // Strictly ensure an active OTP request exists (prevents OTP reuse and unrequested verifications)
     if (!storedHashedOtp) {
+      const mongoose = require('mongoose');
+      console.warn(`[AUTH-DIAG] verifyOtp failed: no active OTP found for ${normalizedEmail}. MongoReady=${mongoose.connection ? mongoose.connection.readyState : 0}, DB=${mongoose.connection ? mongoose.connection.name : 'none'}`);
       return res.status(400).json({
         success: false,
-        message: 'No active OTP request found for this account. Please request a new verification code.'
+        message: 'No active OTP request found for this account. Please request a new verification code.',
+        diagnostic: {
+          searchedEmail: normalizedEmail,
+          mongoReady: mongoose.connection ? mongoose.connection.readyState === 1 : false,
+          dbName: mongoose.connection ? mongoose.connection.name : null,
+          otpDocFound: !!otpRecord,
+          userOtpFound: !!(user && user.otp && user.otp.code)
+        }
       });
     }
 
