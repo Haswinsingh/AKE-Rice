@@ -1,0 +1,21 @@
+{
+  "name": "ake-rice-mern",
+  "version": "2.0.0",
+  "description": "AKE Rice - Complete MERN Stack Application",
+  "scripts": {
+    "server": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev",
+    "start": "node server/server.js",
+    "build": "npm --prefix client run build",
+    "test": "node tests/direct_test.js",
+    "migrate": "node migration/migrate.js"
+  },
+  "keywords": [
+    "ake-rice",
+    "seeraga-samba",
+    "mern",
+    "ecommerce"
+  ],
+  "author": "Ashok Kavin Rice",
+  "license": "ISC"
+}
