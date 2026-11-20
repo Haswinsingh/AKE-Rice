@@ -25,7 +25,7 @@ const SUPER_ADMIN_PERMISSIONS = {
  */
 async function bootstrapAdmin() {
   try {
-    const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+    const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
 
     // 1. Ensure former Super Admin account (kaviyansellappan15@gmail.com / Kavin) is demoted to standard Admin
     const formerSuperAdmin = await User.findOne({

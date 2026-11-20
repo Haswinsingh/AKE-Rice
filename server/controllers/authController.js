@@ -110,7 +110,7 @@ exports.sendOtp = async (req, res) => {
       // If user does not exist, automatically register
       // Designated Super Admin (akerice1527@gmail.com) is created as Super Admin
       if (!user) {
-        const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+        const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
         const isDesignatedSuper = normalizedEmail === superAdminEmail || normalizedEmail === 'akerice1527@gmail.com';
 
         user = new User({
@@ -414,7 +414,7 @@ exports.verifyOtp = async (req, res) => {
 
     // 6. Look up or auto-create User account
     if (!user) {
-      const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
+      const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
       const isDesignatedSuper = normalizedEmail === superAdminEmail || normalizedEmail === 'akerice1527@gmail.com';
 
       user = new User({

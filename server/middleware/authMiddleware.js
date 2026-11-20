@@ -92,16 +92,22 @@ const verifyToken = async (req, res, next) => {
 
 function isSuperAdminUser(user) {
   if (!user) return false;
-  const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
   const userEmail = (user.email || '').toLowerCase().trim();
+
+  // Former super admin is strictly demoted to standard admin and excluded from Super Admin privileges
+  if (userEmail === 'kaviyansellappan15@gmail.com') {
+    return false;
+  }
+
+  const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || 'akerice1527@gmail.com').toLowerCase().trim();
 
   // 1. Explicit match with designated Super Admin email
   if (userEmail === superAdminEmail || userEmail === 'akerice1527@gmail.com') {
     return true;
   }
 
-  // 2. Database boolean flag, strictly ensuring demoted former super admin is excluded
-  if (user.isSuperAdmin === true && userEmail !== 'kaviyansellappan15@gmail.com') {
+  // 2. Database boolean flag
+  if (user.isSuperAdmin === true) {
     return true;
   }
 
