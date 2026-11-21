@@ -1,4 +1,5 @@
 const Order = require('../models/Order');
+const Sale = require('../models/Sale');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const OrderAuditLog = require('../models/OrderAuditLog');
@@ -671,5 +672,166 @@ exports.permanentDeleteOrder = async (req, res) => {
   } catch (error) {
     console.error('[OrderController] permanentDeleteOrder error:', error);
     return res.status(500).json({ success: false, message: 'Failed to permanently delete order', error: error.message });
+  }
+};
+
+/**
+ * Super Admin: Get real order counts breakdown for Delete All Orders confirmation modal
+ */
+exports.getOrderDeletionCounts = async (req, res) => {
+  try {
+    if (!isSuperAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        code: 'SUPER_ADMIN_REQUIRED',
+        message: 'Super Admin authorization required.'
+      });
+    }
+    const onlineOrders = await Order.countDocuments();
+    const posOrders = await Sale.countDocuments();
+    return res.status(200).json({
+      success: true,
+      counts: {
+        totalOrders: onlineOrders + posOrders,
+        onlineOrders,
+        posOrders
+      }
+    });
+  } catch (err) {
+    console.error('[OrderController] getOrderDeletionCounts error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve order counts', error: err.message });
+  }
+};
+
+/**
+ * Super Admin ONLY: Permanently delete all order and sales data across the system
+ */
+exports.deleteAllOrders = async (req, res) => {
+  try {
+    if (!isSuperAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        code: 'SUPER_ADMIN_REQUIRED',
+        message: 'Forbidden. Deleting all order data requires Super Admin authorization.'
+      });
+    }
+
+    const { confirmation } = req.body;
+    if (!confirmation || confirmation.trim() !== 'DELETE ALL ORDERS') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid confirmation. Please type "DELETE ALL ORDERS" to confirm.'
+      });
+    }
+
+    const onlineOrdersCount = await Order.countDocuments();
+    const posOrdersCount = await Sale.countDocuments();
+    const totalDeleted = onlineOrdersCount + posOrdersCount;
+
+    // 1. Audit Log before deletion
+    await OrderAuditLog.create({
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      orderId: 'ALL_ORDERS',
+      action: 'delete_all_orders',
+      orderDetails: {
+        onlineOrdersDeleted: onlineOrdersCount,
+        posSalesDeleted: posOrdersCount,
+        totalDeleted
+      },
+      performedBy: {
+        id: req.user._id ? req.user._id.toString() : req.user.id,
+        name: req.user.name || 'Super Admin',
+        email: req.user.email || '',
+        role: req.user.role || 'admin',
+        isSuperAdmin: true
+      },
+      reason: 'Super Admin executed permanent deletion of all order records.'
+    }).catch(e => console.error('[OrderAuditLog] Delete all error:', e));
+
+    // 2. Permanently delete all records from MongoDB
+    await Order.deleteMany({});
+    await Sale.deleteMany({});
+
+    // 3. Update Google Drive backup if configured (reset monthly workbook without touching unrelated files)
+    if (typeof googleDriveService.handleAllOrdersDeleted === 'function') {
+      googleDriveService.handleAllOrdersDeleted(req.user.name || 'Super Admin').catch(e => {
+        console.error('[GoogleDrive] handleAllOrdersDeleted error:', e.message);
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully deleted all order records (${onlineOrdersCount} online orders, ${posOrdersCount} POS orders). All analytics and reports have been reset.`,
+      summary: {
+        totalOrders: totalDeleted,
+        onlineOrders: onlineOrdersCount,
+        posOrders: posOrdersCount
+      }
+    });
+  } catch (error) {
+    console.error('[OrderController] deleteAllOrders error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete all orders', error: error.message });
+  }
+};
+
+/**
+ * Super Admin ONLY: Permanently purge all soft-deleted orders currently in Trash
+ */
+exports.purgeAllTrashOrders = async (req, res) => {
+  try {
+    if (!isSuperAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        code: 'SUPER_ADMIN_REQUIRED',
+        message: 'Forbidden. Purging trash requires Super Admin authorization.'
+      });
+    }
+
+    const trashOrders = await Order.find({ isDeleted: true }).lean();
+    const count = trashOrders.length;
+
+    if (count === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'Trash is already empty.',
+        count: 0
+      });
+    }
+
+    // Record audit log
+    await OrderAuditLog.create({
+      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      orderId: 'TRASH_PURGE_ALL',
+      action: 'purge_all_trash',
+      orderDetails: {
+        purgedCount: count,
+        orderIds: trashOrders.map(o => o.id).slice(0, 50)
+      },
+      performedBy: {
+        id: req.user._id ? req.user._id.toString() : req.user.id,
+        name: req.user.name || 'Super Admin',
+        email: req.user.email || '',
+        role: req.user.role || 'admin',
+        isSuperAdmin: true
+      },
+      reason: 'Permanently purged all soft-deleted orders in Trash'
+    }).catch(e => console.error('[OrderAuditLog] Purge all trash error:', e));
+
+    // Remove orders from Google Drive
+    for (const o of trashOrders) {
+      googleDriveService.removeOrderFromDrive(o.id, o.date || o.createdAt).catch(() => {});
+    }
+
+    // Permanently remove from database
+    await Order.deleteMany({ isDeleted: true });
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully purged ${count} deleted order(s) from trash.`,
+      count
+    });
+  } catch (error) {
+    console.error('[OrderController] purgeAllTrashOrders error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to purge all trash orders', error: error.message });
   }
 };

@@ -124,6 +124,15 @@ export default function AdminPage({ initialPanel }) {
   const [permanentDeleting, setPermanentDeleting] = useState(false);
   const [restoringOrderId, setRestoringOrderId] = useState(null);
 
+  // Super Admin Delete All Orders & Purge Trash State
+  const [deleteAllModal, setDeleteAllModal] = useState(false);
+  const [deleteAllCounts, setDeleteAllCounts] = useState({ totalOrders: 0, onlineOrders: 0, posOrders: 0 });
+  const [loadingDeleteAllCounts, setLoadingDeleteAllCounts] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingAllOrders, setDeletingAllOrders] = useState(false);
+  const [purgeAllTrashModal, setPurgeAllTrashModal] = useState(false);
+  const [purgingAllTrash, setPurgingAllTrash] = useState(false);
+
   // Test Records Inspection & Cleanup State
   const [testPreviewModal, setTestPreviewModal] = useState(false);
   const [testPreviewData, setTestPreviewData] = useState(null);
@@ -424,21 +433,104 @@ export default function AdminPage({ initialPanel }) {
 
   const handlePermanentDelete = async () => {
     if (!permanentDeleteModal?.order?.id) return;
+    const targetId = permanentDeleteModal.order.id;
     try {
       setPermanentDeleting(true);
-      const res = await orderService.permanentDeleteOrder(permanentDeleteModal.order.id);
+      const res = await orderService.permanentDeleteOrder(targetId);
       if (res && res.success) {
-        showToast(`Order ${permanentDeleteModal.order.id} permanently removed.`, 'success');
+        showToast(`Order ${targetId} permanently deleted.`, 'success');
         setPermanentDeleteModal(null);
         loadTrashOrders();
+        loadOrders();
+        loadAnalytics();
+        loadReports();
         loadDriveStatus();
       } else {
-        showToast(res.message || 'Failed to permanently delete order', 'error');
+        showToast(res?.message || 'Failed to permanently delete order', 'error');
       }
     } catch (err) {
       showToast(err.message || 'Failed to permanently delete order', 'error');
     } finally {
       setPermanentDeleting(false);
+    }
+  };
+
+  // Super Admin: Open Delete All Orders modal & fetch live breakdown
+  const handleOpenDeleteAllModal = async () => {
+    setDeleteConfirmText('');
+    setDeleteAllModal(true);
+    setLoadingDeleteAllCounts(true);
+    try {
+      const res = await orderService.getOrderDeletionCounts();
+      if (res && res.success && res.counts) {
+        setDeleteAllCounts(res.counts);
+      } else {
+        setDeleteAllCounts({
+          totalOrders: (orders?.length || 0) + (trashOrders?.length || 0),
+          onlineOrders: (orders?.length || 0) + (trashOrders?.length || 0),
+          posOrders: 0
+        });
+      }
+    } catch (err) {
+      setDeleteAllCounts({
+        totalOrders: (orders?.length || 0) + (trashOrders?.length || 0),
+        onlineOrders: (orders?.length || 0) + (trashOrders?.length || 0),
+        posOrders: 0
+      });
+    } finally {
+      setLoadingDeleteAllCounts(false);
+    }
+  };
+
+  // Super Admin: Confirm execution of Delete All Orders
+  const handleConfirmDeleteAllOrders = async () => {
+    if (deleteConfirmText.trim() !== 'DELETE ALL ORDERS') {
+      showToast('Please type "DELETE ALL ORDERS" to confirm', 'warning');
+      return;
+    }
+    try {
+      setDeletingAllOrders(true);
+      const res = await orderService.deleteAllOrders('DELETE ALL ORDERS');
+      if (res && res.success) {
+        showToast(res.message || 'All order records deleted successfully.', 'success');
+        setDeleteAllModal(false);
+        setDeleteConfirmText('');
+        // Immediately refresh all dependent modules across dashboard
+        loadOrders();
+        loadTrashOrders();
+        loadAnalytics();
+        loadReports();
+        loadPosReports();
+        loadRecentSales();
+        loadDriveStatus();
+      } else {
+        showToast(res?.message || 'Failed to delete all orders', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to delete all orders', 'error');
+    } finally {
+      setDeletingAllOrders(false);
+    }
+  };
+
+  // Super Admin: Confirm execution of Purge All Trash Orders
+  const handleConfirmPurgeAllTrash = async () => {
+    try {
+      setPurgingAllTrash(true);
+      const res = await orderService.purgeAllTrashOrders();
+      if (res && res.success) {
+        showToast(res.message || 'Trash archive emptied successfully.', 'success');
+        setPurgeAllTrashModal(false);
+        loadTrashOrders();
+        loadAnalytics();
+        loadDriveStatus();
+      } else {
+        showToast(res?.message || 'Failed to purge trash orders', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to purge trash orders', 'error');
+    } finally {
+      setPurgingAllTrash(false);
     }
   };
 
@@ -3144,6 +3236,18 @@ export default function AdminPage({ initialPanel }) {
                 <Database className="w-3.5 h-3.5" />
                 <span>Test Records Cleanup</span>
               </button>
+
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={handleOpenDeleteAllModal}
+                  className="px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400 border border-red-300 dark:border-red-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                  title="Permanently delete all order records and reset analytics (Super Admin only)"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                  <span>Delete All Orders</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -3330,15 +3434,29 @@ export default function AdminPage({ initialPanel }) {
                     Soft-deleted orders excluded from store operations, customer history, and reports. Restore at any time or permanently delete (Super Admin only).
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={loadTrashOrders}
-                  disabled={loadingTrash}
-                  className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-dark-bg text-gray-700 dark:text-gray-300 text-xs font-bold flex items-center gap-2 hover:bg-gray-200 transition-colors cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTrash ? 'animate-spin' : ''}`} />
-                  <span>Refresh Trash</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={loadTrashOrders}
+                    disabled={loadingTrash}
+                    className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-dark-bg text-gray-700 dark:text-gray-300 text-xs font-bold flex items-center gap-2 hover:bg-gray-200 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingTrash ? 'animate-spin' : ''}`} />
+                    <span>Refresh Trash</span>
+                  </button>
+
+                  {isSuperAdmin && trashOrders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPurgeAllTrashModal(true)}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                      title="Permanently remove all orders in Trash (Super Admin only)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Purge All Deleted Orders</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               {loadingTrash ? (
@@ -3593,7 +3711,7 @@ export default function AdminPage({ initialPanel }) {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
               <div className="bg-white dark:bg-dark-card rounded-3xl max-w-lg w-full p-6 space-y-4 border-2 border-red-600 shadow-2xl">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-red-600 text-white">
+                  <div className="p-3 rounded-2xl bg-red-600 text-white shrink-0">
                     <ShieldAlert className="w-6 h-6" />
                   </div>
                   <div>
@@ -3601,7 +3719,7 @@ export default function AdminPage({ initialPanel }) {
                       PERMANENT PURGE (Super Admin Only)
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Order ID: <strong className="font-mono text-gray-800 dark:text-gray-200">{permanentDeleteModal.order.id}</strong>
+                      Order ID: <strong className="font-mono text-gray-800 dark:text-gray-200">{permanentDeleteModal.order?.id}</strong>
                     </p>
                   </div>
                 </div>
@@ -3618,11 +3736,11 @@ export default function AdminPage({ initialPanel }) {
                 <div className="p-3 rounded-xl bg-gray-100 dark:bg-dark-bg text-xs space-y-1">
                   <div className="flex justify-between">
                     <span className="text-gray-500">Customer:</span>
-                    <strong className="text-gray-800 dark:text-gray-200">{permanentDeleteModal.order.name} (+91 {permanentDeleteModal.order.mobile})</strong>
+                    <strong className="text-gray-800 dark:text-gray-200">{permanentDeleteModal.order?.name} (+91 {permanentDeleteModal.order?.mobile})</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Total:</span>
-                    <strong className="text-red-600 font-bold">₹{permanentDeleteModal.order.total?.toLocaleString('en-IN')}</strong>
+                    <strong className="text-red-600 font-bold">₹{permanentDeleteModal.order?.total?.toLocaleString('en-IN')}</strong>
                   </div>
                 </div>
 
@@ -3630,7 +3748,7 @@ export default function AdminPage({ initialPanel }) {
                   <button
                     type="button"
                     onClick={() => setPermanentDeleteModal(null)}
-                    disabled={permanentlyDeleting}
+                    disabled={permanentDeleting}
                     className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
                   >
                     Cancel
@@ -3638,11 +3756,163 @@ export default function AdminPage({ initialPanel }) {
                   <button
                     type="button"
                     onClick={handlePermanentDelete}
-                    disabled={permanentlyDeleting}
+                    disabled={permanentDeleting}
                     className="px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
-                    {permanentlyDeleting ? 'Purging...' : 'Permanently Purge Order'}
+                    {permanentDeleting ? 'Purging...' : 'Permanently Purge Order'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Delete All Order Data Confirmation Modal (Super Admin Only) */}
+          {deleteAllModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-lg w-full p-6 space-y-4 border-2 border-red-600 shadow-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-red-600 text-white shrink-0">
+                    <ShieldAlert className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="brand-font text-xl font-bold text-red-600">
+                      Delete All Order Data?
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Super Administrator Destruction Authority
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 space-y-2 text-xs">
+                  <p className="font-bold text-red-700 dark:text-red-400">
+                    ⚠️ CRITICAL WARNING: THIS ACTION CANNOT BE UNDONE!
+                  </p>
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                    This action will delete all order records from the system and reset all order-related analytics, reports, revenue statistics, customer order counts, and sales charts.
+                  </p>
+                </div>
+
+                {/* Affected Records Breakdown */}
+                <div className="p-4 rounded-2xl bg-gray-100 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-xs space-y-2">
+                  <div className="font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-[11px]">
+                    Affected Records Breakdown:
+                  </div>
+                  {loadingDeleteAllCounts ? (
+                    <div className="flex items-center gap-2 text-gray-400 py-2">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Calculating affected order records...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                        <span className="block text-[10px] text-gray-400 font-bold uppercase">Total Orders</span>
+                        <strong className="text-base font-black text-red-600 font-mono">
+                          {deleteAllCounts.totalOrders}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                        <span className="block text-[10px] text-gray-400 font-bold uppercase">Online Orders</span>
+                        <strong className="text-base font-black text-forest-green dark:text-gold font-mono">
+                          {deleteAllCounts.onlineOrders}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border">
+                        <span className="block text-[10px] text-gray-400 font-bold uppercase">POS Orders</span>
+                        <strong className="text-base font-black text-blue-600 font-mono">
+                          {deleteAllCounts.posOrders}
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Confirmation Input Field */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                    To confirm permanent deletion of all orders, type <span className="font-mono text-red-600 font-extrabold select-all">DELETE ALL ORDERS</span> below:
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="DELETE ALL ORDERS"
+                    disabled={deletingAllOrders}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-red-300 dark:border-red-800 bg-white dark:bg-dark-bg text-xs font-mono font-bold tracking-wider text-red-700 dark:text-red-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteAllModal(false);
+                      setDeleteConfirmText('');
+                    }}
+                    disabled={deletingAllOrders}
+                    className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteAllOrders}
+                    disabled={deleteConfirmText.trim() !== 'DELETE ALL ORDERS' || deletingAllOrders}
+                    className="px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deletingAllOrders ? 'Deleting All Orders...' : 'Permanently Delete All Orders'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Purge All Deleted Orders Confirmation Modal (Super Admin Only) */}
+          {purgeAllTrashModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-md w-full p-6 space-y-4 border-2 border-red-600 shadow-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-red-600 text-white shrink-0">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="brand-font text-lg font-bold text-red-600">
+                      Purge All Deleted Orders?
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Empty Trash Archive ({trashOrders.length} records)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 space-y-2 text-xs">
+                  <p className="font-bold text-red-700 dark:text-red-400">
+                    ⚠️ THIS ACTION CANNOT BE UNDONE!
+                  </p>
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                    Are you sure you want to permanently delete all deleted orders? This action cannot be undone. All <strong>{trashOrders.length}</strong> deleted order records will be permanently removed from the database and Google Drive.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPurgeAllTrashModal(false)}
+                    disabled={purgingAllTrash}
+                    className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPurgeAllTrash}
+                    disabled={purgingAllTrash}
+                    className="px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {purgingAllTrash ? 'Purging Trash...' : 'Permanently Purge All'}
                   </button>
                 </div>
               </div>

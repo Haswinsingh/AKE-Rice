@@ -32,6 +32,14 @@ export const orderService = {
   }),
   permanentDeleteOrder: (id) => apiRequest(`/orders/${id}/permanent`, {
     method: 'DELETE'
+  }),
+  getOrderDeletionCounts: () => apiRequest('/orders/counts/deletion-summary'),
+  deleteAllOrders: (confirmation) => apiRequest('/orders/all', {
+    method: 'DELETE',
+    body: JSON.stringify({ confirmation })
+  }),
+  purgeAllTrashOrders: () => apiRequest('/orders/trash/all', {
+    method: 'DELETE'
   })
 };
 

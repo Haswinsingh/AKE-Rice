@@ -12,6 +12,15 @@ router.get('/', optionalAuth, orderController.getOrders);
 // Admin & Super Admin: Get soft-deleted orders in Trash
 router.get('/trash', verifyToken, requireAdmin, orderController.getDeletedOrders);
 
+// Super Admin ONLY: Get order deletion counts for confirmation modal
+router.get('/counts/deletion-summary', verifyToken, requireSuperAdmin, orderController.getOrderDeletionCounts);
+
+// Super Admin ONLY: Delete all order and sales data across the system
+router.delete('/all', verifyToken, requireSuperAdmin, orderController.deleteAllOrders);
+
+// Super Admin ONLY: Permanently purge all deleted orders in Trash
+router.delete('/trash/all', verifyToken, requireSuperAdmin, orderController.purgeAllTrashOrders);
+
 // Get single order
 router.get('/:id', optionalAuth, orderController.getOrderById);
 

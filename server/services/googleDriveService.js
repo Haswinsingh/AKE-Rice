@@ -1525,6 +1525,51 @@ async function syncCurrentMonth(triggeredBy = 'Admin') {
 }
 
 /**
+ * Handle Google Drive sync when all orders are deleted
+ * Regenerates the active monthly workbook to an empty state with 0 transactions
+ */
+async function handleAllOrdersDeleted(triggeredBy = 'Super Admin') {
+  if (!isConfigured()) return { success: false, reason: 'not_configured' };
+  try {
+    const drive = getDriveClient();
+    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID.trim();
+    const nowParts = getKolkataDateParts(new Date());
+
+    const yearFolderId = await getOrCreateYearFolder(drive, folderId, nowParts.year);
+    const existingFile = await findMonthlyFile(drive, yearFolderId, nowParts.monthFileName);
+
+    const workbook = buildInitialWorkbook(nowParts.year, nowParts.month);
+    recalculateSummarySheets(workbook, nowParts.year, nowParts.month);
+
+    await saveWorkbookToDrive(drive, workbook, yearFolderId, existingFile ? existingFile.id : null, nowParts.monthFileName);
+
+    await DriveBackupLog.create({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      action: 'delete_all_orders',
+      status: 'success',
+      triggeredBy,
+      fileId: existingFile ? existingFile.id : undefined,
+      fileName: nowParts.monthFileName,
+      stats: { ordersExported: 0, salesExported: 0, failedCount: 0 },
+      details: 'All orders deleted in MongoDB; reset active monthly workbook to empty state.'
+    }).catch(() => {});
+
+    return { success: true, message: 'Google Drive monthly workbook updated to empty state.' };
+  } catch (err) {
+    console.error('[GoogleDrive] handleAllOrdersDeleted error:', err.message);
+    await DriveBackupLog.create({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      action: 'delete_all_orders',
+      status: 'failed',
+      triggeredBy,
+      error: err.message,
+      details: 'Failed to update Google Drive workbook after orders deleted.'
+    }).catch(() => {});
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Test Google Drive API connection & permissions
  */
 async function testConnection() {
@@ -1733,6 +1778,7 @@ module.exports = {
   exportAllHistoricalTransactions,
   retryFailedExports,
   syncCurrentMonth,
+  handleAllOrdersDeleted,
   testConnection,
   getBackupStatus
 };
