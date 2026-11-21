@@ -20,57 +20,79 @@ exports.getDashboardAnalytics = async (req, res) => {
     const feedbackCount = await Feedback.countDocuments();
 
     // 1. Calculate Summary Totals
-    const totalOrderRevenue = orders
-      .filter(o => o.status !== 'Cancelled')
+    // Recognized order statuses that count toward realized business revenue:
+    // Exclude 'Cancelled' (0), exclude unaccepted pending orders ('Pending', 'Order Placed', 'Payment Pending', 'Payment Verification')
+    const RECOGNIZED_STATUSES = ['Accepted', 'Confirmed', 'Processing', 'Ready', 'Ready for Delivery', 'Out for Delivery', 'Delivered'];
+    const recognizedOrders = orders.filter(o => RECOGNIZED_STATUSES.includes(o.status));
+
+    const totalOrderRevenue = recognizedOrders
       .reduce((sum, o) => sum + (o.total || 0), 0);
     
-    const totalPosRevenue = sales
-      .filter(s => s.status !== 'Cancelled')
+    const validSales = sales.filter(s => s.status !== 'Cancelled');
+    const totalPosRevenue = validSales
       .reduce((sum, s) => sum + (s.total || 0), 0);
 
     const totalRevenue = totalOrderRevenue + totalPosRevenue;
-    const totalOrders = orders.length;
-    const deliveredOrders = orders.filter(o => o.status === 'Delivered').length;
-    const pendingOrders = orders.filter(o => o.status === 'Pending' || o.status === 'Order Placed' || o.status === 'Payment Pending').length;
+    
+    // Prevent duplicate counting of orders/sales by unique ID
+    const uniqueTxIds = new Set();
+    orders.forEach(o => { if (o.status !== 'Cancelled') uniqueTxIds.add(o.id); });
+    validSales.forEach(s => { uniqueTxIds.add(s.id); });
+    const totalOrders = uniqueTxIds.size;
+
+    const deliveredOrders = orders.filter(o => o.status === 'Delivered').length + validSales.filter(s => s.status === 'Delivered' || s.status === 'Completed').length;
+    const pendingOrders = orders.filter(o => ['Pending', 'Order Placed', 'Payment Pending', 'Payment Verification'].includes(o.status)).length;
+    const acceptedOrders = orders.filter(o => ['Accepted', 'Confirmed', 'Processing', 'Ready', 'Ready for Delivery', 'Out for Delivery'].includes(o.status)).length;
 
     // 2. Weekly / 7-Day Trend
     const today = new Date();
     const last7Days = [];
+    let last7DaysTotalRevenue = 0;
+    let last7DaysTotalOrders = 0;
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(today.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
 
-      // Daily orders revenue
-      const orderDaily = orders
-        .filter(o => (o.date === dateStr || (o.createdAt && new Date(o.createdAt).toISOString().split('T')[0] === dateStr)) && o.status !== 'Cancelled')
-        .reduce((sum, o) => sum + (o.total || 0), 0);
+      // Daily orders revenue (strictly recognized orders)
+      const dailyOrders = recognizedOrders
+        .filter(o => (o.date === dateStr || (o.createdAt && new Date(o.createdAt).toISOString().split('T')[0] === dateStr)));
+      const orderDaily = dailyOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
       // Daily POS sales revenue
-      const posDaily = sales
-        .filter(s => s.date === dateStr && s.status !== 'Cancelled')
-        .reduce((sum, s) => sum + (s.total || 0), 0);
+      const dailySales = validSales
+        .filter(s => (s.date === dateStr || (s.createdAt && new Date(s.createdAt).toISOString().split('T')[0] === dateStr)));
+      const posDaily = dailySales.reduce((sum, s) => sum + (s.total || 0), 0);
+
+      const dayRevenue = orderDaily + posDaily;
+      const dayOrderCount = dailyOrders.length + dailySales.length;
+      last7DaysTotalRevenue += dayRevenue;
+      last7DaysTotalOrders += dayOrderCount;
 
       last7Days.push({
         date: dateStr,
         day: dayName,
-        revenue: orderDaily + posDaily,
+        revenue: dayRevenue,
+        orderCount: dayOrderCount,
         ordersRevenue: orderDaily,
-        posRevenue: posDaily
+        onlineOrders: dailyOrders.length,
+        posRevenue: posDaily,
+        posSales: dailySales.length
       });
     }
 
     // 3. Revenue Distribution by Area
     const areaRevenueMap = {};
-    orders.forEach(o => {
-      if (o.status !== 'Cancelled' && o.area) {
+    recognizedOrders.forEach(o => {
+      if (o.area) {
         const area = o.area.trim();
         areaRevenueMap[area] = (areaRevenueMap[area] || 0) + (o.total || 0);
       }
     });
-    sales.forEach(s => {
-      if (s.status !== 'Cancelled' && s.area) {
+    validSales.forEach(s => {
+      if (s.area) {
         const area = s.area.trim();
         areaRevenueMap[area] = (areaRevenueMap[area] || 0) + (s.total || 0);
       }
@@ -87,26 +109,22 @@ exports.getDashboardAnalytics = async (req, res) => {
     let cashCount = 0;
     let cashTotal = 0;
 
-    orders.forEach(o => {
-      if (o.status !== 'Cancelled') {
-        if ((o.payment || '').includes('Online')) {
-          onlineCount += 1;
-          onlineTotal += (o.total || 0);
-        } else {
-          cashCount += 1;
-          cashTotal += (o.total || 0);
-        }
+    recognizedOrders.forEach(o => {
+      if ((o.payment || '').includes('Online')) {
+        onlineCount += 1;
+        onlineTotal += (o.total || 0);
+      } else {
+        cashCount += 1;
+        cashTotal += (o.total || 0);
       }
     });
-    sales.forEach(s => {
-      if (s.status !== 'Cancelled') {
-        if ((s.payment || '').includes('Online') || (s.payment || '').includes('UPI')) {
-          onlineCount += 1;
-          onlineTotal += (s.total || 0);
-        } else {
-          cashCount += 1;
-          cashTotal += (s.total || 0);
-        }
+    validSales.forEach(s => {
+      if ((s.payment || '').includes('Online') || (s.payment || '').includes('UPI')) {
+        onlineCount += 1;
+        onlineTotal += (s.total || 0);
+      } else {
+        cashCount += 1;
+        cashTotal += (s.total || 0);
       }
     });
 
@@ -122,26 +140,22 @@ exports.getDashboardAnalytics = async (req, res) => {
     let count25kg = 0;
     let revenue25kg = 0;
 
-    orders.forEach(o => {
-      if (o.status !== 'Cancelled') {
-        if ((o.product || '').includes('25')) {
-          count25kg += (o.qty || 1);
-          revenue25kg += (o.total || 0);
-        } else {
-          count1kg += (o.qty || 1);
-          revenue1kg += (o.total || 0);
-        }
+    recognizedOrders.forEach(o => {
+      if ((o.product || '').includes('25')) {
+        count25kg += (o.qty || 1);
+        revenue25kg += (o.total || 0);
+      } else {
+        count1kg += (o.qty || 1);
+        revenue1kg += (o.total || 0);
       }
     });
-    sales.forEach(s => {
-      if (s.status !== 'Cancelled') {
-        if ((s.product || '').includes('25')) {
-          count25kg += (s.qty || 1);
-          revenue25kg += (s.total || 0);
-        } else {
-          count1kg += (s.qty || 1);
-          revenue1kg += (s.total || 0);
-        }
+    validSales.forEach(s => {
+      if ((s.product || '').includes('25')) {
+        count25kg += (s.qty || 1);
+        revenue25kg += (s.total || 0);
+      } else {
+        count1kg += (s.qty || 1);
+        revenue1kg += (s.total || 0);
       }
     });
 
@@ -157,9 +171,12 @@ exports.getDashboardAnalytics = async (req, res) => {
         totalOrders,
         deliveredOrders,
         pendingOrders,
+        acceptedOrders,
         customersCount,
         feedbackCount,
         last7Days,
+        last7DaysTotalRevenue,
+        last7DaysTotalOrders,
         areaBreakdown,
         paymentShare,
         productComparison

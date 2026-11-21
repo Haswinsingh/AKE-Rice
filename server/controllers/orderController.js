@@ -278,6 +278,51 @@ exports.getOrderById = async (req, res) => {
 };
 
 /**
+ * Admin: Explicitly accept incoming order into production workflow
+ */
+exports.acceptOrder = async (req, res) => {
+  try {
+    const { note } = req.body;
+    const order = await Order.findOne({ id: req.params.id });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.status === 'Cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot accept a cancelled order' });
+    }
+
+    order.status = 'Accepted';
+    if (order.paymentStatus === 'Pending Verification' && (order.paymentType === 'Cash on Delivery' || order.payment === 'Cash on Delivery')) {
+      order.paymentStatus = 'Cash on Delivery';
+    }
+
+    order.statusHistory.push({
+      status: 'Accepted',
+      changedAt: new Date(),
+      changedBy: req.user?.name || 'Admin',
+      note: note || 'Order accepted by Administrator'
+    });
+
+    await order.save();
+
+    // Asynchronously export / sync accepted order to Google Drive monthly backup
+    googleDriveService.exportOrder(order).catch(err => {
+      console.error('[GoogleDrive Trigger] Failed to sync accepted order to Drive:', err.message);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order accepted successfully',
+      order
+    });
+  } catch (error) {
+    console.error('[OrderController] acceptOrder error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to accept order', error: error.message });
+  }
+};
+
+/**
  * Admin: Update delivery / order status
  */
 exports.updateOrderStatus = async (req, res) => {

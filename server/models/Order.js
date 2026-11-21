@@ -44,10 +44,12 @@ const orderSchema = new mongoose.Schema({
     enum: [
       'Order Placed',
       'Pending',
+      'Accepted',
       'Payment Pending',
       'Payment Verification',
       'Confirmed',
       'Processing',
+      'Ready',
       'Ready for Delivery',
       'Out for Delivery',
       'Delivered',

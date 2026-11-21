@@ -10,6 +10,10 @@ export const orderService = {
     return apiRequest(`/orders${query ? `?${query}` : ''}`);
   },
   getOrderById: (id) => apiRequest(`/orders/${id}`),
+  acceptOrder: (id, note) => apiRequest(`/orders/${id}/accept`, {
+    method: 'PUT',
+    body: JSON.stringify({ note })
+  }),
   updateStatus: (id, status, note) => apiRequest(`/orders/${id}/status`, {
     method: 'PUT',
     body: JSON.stringify({ status, note })

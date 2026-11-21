@@ -15,6 +15,9 @@ router.get('/trash', verifyToken, requireAdmin, orderController.getDeletedOrders
 // Get single order
 router.get('/:id', optionalAuth, orderController.getOrderById);
 
+// Admin: Accept incoming order into fulfillment workflow
+router.put('/:id/accept', verifyToken, requireAdmin, orderController.acceptOrder);
+
 // Admin: Update order delivery status
 router.put('/:id/status', verifyToken, requireAdmin, orderController.updateOrderStatus);
 

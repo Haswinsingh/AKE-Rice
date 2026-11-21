@@ -47,7 +47,6 @@ const PERMISSION_LIST = [
   { key: 'reports', label: 'Business Reports', desc: 'Generate date-filtered sales reports, area revenue statements, and export Excel/CSV reports.' },
   { key: 'pos_reports', label: 'Reports & Comparison', desc: 'View sales reports, date-filtered metrics, transaction ledgers, and billing comparison.' },
   { key: 'orders', label: 'Store & WhatsApp Orders', desc: 'Process incoming online store and WhatsApp orders, verify payment screenshots, and update delivery statuses.' },
-  { key: 'feedback', label: 'Feedback Management', desc: 'Moderate customer reviews, approve testimonials for public display, and write management replies.' },
   { key: 'admin_management', label: 'Admin Management', desc: 'View administrator roster, promote customer accounts to admin, and review access logs.' },
   { key: 'settings', label: 'Settings', desc: 'Review mill store operating hours, contact configurations, and delivery fee settings.' }
 ];
@@ -60,7 +59,6 @@ const ALL_NAV_PANELS = [
   { id: 'pos-reports', name: 'Reports & Comparison', icon: FileSpreadsheet, permission: 'pos_reports' },
   { id: 'drive-backup', name: 'Google Drive Backup', icon: Cloud, permission: 'reports' },
   { id: 'orders', name: 'Store & WhatsApp Orders', icon: ShoppingBag, permission: 'orders' },
-  { id: 'feedback', name: 'Feedback Management', icon: MessageSquare, permission: 'feedback' },
   { id: 'admin-users', name: 'Admin Management', icon: Shield, permission: 'admin_management' }
 ];
 
@@ -72,7 +70,7 @@ export default function AdminPage({ initialPanel }) {
   const { showToast } = useToast();
 
   const rawPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
-  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : (rawPanel === 'pos-staff' ? 'analytics' : rawPanel));
+  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : (rawPanel === 'pos-staff' || rawPanel === 'feedback' ? 'analytics' : rawPanel));
   const [activePanel, setActivePanel] = useState(normalizedPanel || 'analytics');
   const [productSubTab, setProductSubTab] = useState('catalog'); // 'catalog' | 'stock_history'
   const [lightboxImg, setLightboxImg] = useState(null);
@@ -276,7 +274,7 @@ export default function AdminPage({ initialPanel }) {
   useEffect(() => {
     const qPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
     if (qPanel && isPanelAuthorized(qPanel)) {
-      setActivePanel(qPanel === 'inventory' ? 'products' : (qPanel === 'customers' ? 'orders' : (qPanel === 'pos-staff' ? 'analytics' : qPanel)));
+      setActivePanel(qPanel === 'inventory' ? 'products' : (qPanel === 'customers' ? 'orders' : (qPanel === 'pos-staff' || qPanel === 'feedback' ? 'analytics' : qPanel)));
     }
   }, [searchParams, initialPanel]);
 
@@ -307,7 +305,6 @@ export default function AdminPage({ initialPanel }) {
         loadOrders();
         loadTrashOrders();
       }
-      if (activePanel === 'feedback') loadFeedback();
       if (activePanel === 'admin-users') loadAdminUsers();
     }
   }, [isAdmin, activePanel, isSuperAdmin, user?.permissions]);
@@ -679,6 +676,22 @@ export default function AdminPage({ initialPanel }) {
     }
   };
 
+  // Explicitly accept incoming order into fulfillment workflow
+  const handleAcceptOrder = async (orderId) => {
+    try {
+      const res = await orderService.acceptOrder(orderId);
+      if (res.success) {
+        showToast(`Order ${orderId} accepted into processing`, 'success');
+        loadOrders();
+        loadAnalytics();
+      } else {
+        showToast(res.message || 'Failed to accept order', 'error');
+      }
+    } catch (err) {
+      showToast(err.message || 'Failed to accept order', 'error');
+    }
+  };
+
   // Update order delivery status
   const handleStatusChange = async (orderId, newStatus) => {
     try {
@@ -686,6 +699,7 @@ export default function AdminPage({ initialPanel }) {
       if (res.success) {
         showToast(`Order status updated to ${newStatus}`, 'success');
         loadOrders();
+        loadAnalytics();
       }
     } catch (err) {
       showToast('Failed to update status', 'error');
@@ -1442,7 +1456,6 @@ export default function AdminPage({ initialPanel }) {
               }
               if (activePanel === 'reports') loadReports();
               if (activePanel === 'drive-backup') loadDriveStatus();
-              if (activePanel === 'feedback') loadFeedback();
               if (activePanel === 'admin-users') loadAdminUsers();
               if (activePanel === 'settings') showToast('Settings preferences loaded', 'info');
             }}
@@ -1458,9 +1471,9 @@ export default function AdminPage({ initialPanel }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* RESPONSIVE DASHBOARD NAVIGATION GRID */}
+      {/* RESPONSIVE DASHBOARD NAVIGATION GRID (2 × 4 ON DESKTOP) */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {navPanels.map((p) => {
           const Icon = p.icon;
           const isActive = activePanel === p.id;
@@ -1596,34 +1609,65 @@ export default function AdminPage({ initialPanel }) {
                   <strong className="block text-3xl font-black text-forest-green dark:text-gold">
                     {analytics.feedbackCount}
                   </strong>
-                  <span className="text-[11px] text-gray-400">5.0 Star rated quality score</span>
+                  <span className="text-[11px] text-gray-400">
+                    {analytics.feedbackCount > 0 ? `${analytics.feedbackCount} customer reviews` : 'No customer reviews yet.'}
+                  </span>
                 </div>
               </div>
 
-              {/* 7-Day Revenue Trend Line Chart (SVG) */}
+              {/* 7-Day Revenue Trend Line Chart */}
               <div className="bg-white dark:bg-dark-card p-6 sm:p-8 rounded-3xl border border-gold/30 shadow-xl space-y-4">
-                <h3 className="brand-font text-xl font-bold text-forest-green dark:text-gold-light">
-                  7-Day Sales & Revenue Trend
-                </h3>
-
-                <div className="h-64 w-full flex items-end gap-3 pt-6 pb-2 px-4 border-b border-gray-200 dark:border-dark-border">
-                  {analytics.last7Days.map((d, idx) => {
-                    const maxRev = Math.max(...analytics.last7Days.map(x => x.revenue), 1000);
-                    const heightPct = Math.max(10, Math.round((d.revenue / maxRev) * 100));
-                    return (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-2 group">
-                        <span className="text-[10px] font-bold text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                          ₹{d.revenue.toLocaleString('en-IN')}
-                        </span>
-                        <div
-                          className="w-full max-w-[48px] rounded-t-xl bg-gradient-to-t from-forest-green to-gold transition-all duration-500 group-hover:from-gold group-hover:to-emerald"
-                          style={{ height: `${heightPct}%` }}
-                        />
-                        <span className="text-xs font-bold text-gray-600 dark:text-gray-400">{d.day}</span>
-                      </div>
-                    );
-                  })}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="brand-font text-xl font-bold text-forest-green dark:text-gold-light">
+                      7-Day Sales & Revenue Trend
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Calculated from actual database orders and retail POS sales.
+                    </p>
+                  </div>
+                  {analytics.last7DaysTotalRevenue > 0 && (
+                    <span className="text-xs font-bold px-3 py-1 rounded-full bg-forest-green/10 text-forest-green dark:text-gold border border-gold/30">
+                      7-Day Total: ₹{analytics.last7DaysTotalRevenue.toLocaleString('en-IN')} ({analytics.last7DaysTotalOrders} sales)
+                    </span>
+                  )}
                 </div>
+
+                {!analytics.last7Days || analytics.last7Days.length === 0 || analytics.last7Days.every(d => d.revenue === 0) ? (
+                  <div className="h-64 flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500 py-12 border-b border-gray-200 dark:border-dark-border">
+                    <BarChart3 className="w-10 h-10 mb-2 text-gray-300 dark:text-gray-600 opacity-60" />
+                    <p className="font-semibold text-sm text-gray-600 dark:text-gray-300">
+                      No sales recorded in the last 7 days.
+                    </p>
+                    <span className="text-xs text-gray-400 mt-1">
+                      Confirmed store orders and retail POS sales will appear here in real time.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="h-64 w-full flex items-end gap-3 pt-6 pb-2 px-4 border-b border-gray-200 dark:border-dark-border">
+                    {analytics.last7Days.map((d, idx) => {
+                      const maxRev = Math.max(...analytics.last7Days.map(x => x.revenue), 1);
+                      const heightPct = d.revenue > 0 ? Math.max(8, Math.round((d.revenue / maxRev) * 100)) : 0;
+                      return (
+                        <div key={idx} className="flex-1 flex flex-col items-center gap-2 group">
+                          <span className="text-[10px] font-bold text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            ₹{d.revenue.toLocaleString('en-IN')}
+                          </span>
+                          <div
+                            className={`w-full max-w-[48px] rounded-t-xl transition-all duration-500 ${
+                              d.revenue > 0
+                                ? 'bg-gradient-to-t from-forest-green to-gold group-hover:from-gold group-hover:to-emerald'
+                                : 'bg-gray-100 dark:bg-dark-bg border-t border-gray-200 dark:border-dark-border'
+                            }`}
+                            style={{ height: d.revenue > 0 ? `${heightPct}%` : '4px' }}
+                            title={`${d.day} (${d.date}): ₹${d.revenue.toLocaleString('en-IN')} • ${d.orderCount || 0} order(s)`}
+                          />
+                          <span className="text-xs font-bold text-gray-600 dark:text-gray-400">{d.day}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Grid: Revenue by Area, Payment Share, Product Comparison */}
@@ -3207,8 +3251,10 @@ export default function AdminPage({ initialPanel }) {
                               className="px-2 py-1 rounded-lg border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg font-semibold"
                             >
                               <option value="Pending">Pending</option>
+                              <option value="Accepted">Accepted</option>
                               <option value="Confirmed">Confirmed</option>
                               <option value="Processing">Processing</option>
+                              <option value="Ready">Ready</option>
                               <option value="Ready for Delivery">Ready for Delivery</option>
                               <option value="Out for Delivery">Out for Delivery</option>
                               <option value="Delivered">Delivered</option>
@@ -3217,6 +3263,18 @@ export default function AdminPage({ initialPanel }) {
                           </td>
                           <td className="p-3">
                             <div className="flex items-center gap-1.5">
+                              {/* Order Acceptance Workflow Button */}
+                              {(o.status === 'Pending' || o.status === 'Order Placed' || o.status === 'Payment Pending') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAcceptOrder(o.id)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald hover:bg-emerald-600 text-white font-bold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                                  title="Accept this incoming order into processing"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Accept</span>
+                                </button>
+                              )}
                               {o.screenshot && o.paymentStatus !== 'Verified' && (
                                 <button
                                   onClick={() => setPaymentVerifyModal({ order: o, action: 'verify' })}
@@ -4540,142 +4598,6 @@ export default function AdminPage({ initialPanel }) {
               </div>
             </form>
           </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 7. CUSTOMER FEEDBACK MODERATION PANEL */}
-      {/* ========================================================================= */}
-      {activePanel === 'feedback' && (
-        <div className="space-y-6 animate-in fade-in">
-          
-          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md flex items-center justify-between">
-            <h3 className="brand-font text-xl font-bold text-forest-green dark:text-gold-light">
-              Customer Feedback Moderation ({adminFeedback.length})
-            </h3>
-            <select
-              value={feedbackFilter}
-              onChange={(e) => {
-                setFeedbackFilter(e.target.value);
-                setTimeout(loadFeedback, 100);
-              }}
-              className="px-3 py-1.5 rounded-xl border border-gray-300 text-xs bg-white dark:bg-dark-bg font-semibold"
-            >
-              <option value="all">All Reviews</option>
-              <option value="Approved">Approved</option>
-              <option value="Pending">Pending</option>
-              <option value="Rejected">Rejected</option>
-            </select>
-          </div>
-
-          <div className="space-y-4">
-            {adminFeedback.map(fb => (
-              <div
-                key={fb.id || fb._id}
-                className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/25 shadow-md space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <strong className="text-base font-bold text-forest-green dark:text-gold-light capitalize">{fb.name}</strong>
-                    <span className="text-xs text-gray-400 ml-2 font-mono">+91 {fb.mobile}</span>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                    fb.status === 'Approved' ? 'bg-emerald/20 text-emerald' : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {fb.status}
-                  </span>
-                </div>
-
-                <p className="text-sm text-gray-700 dark:text-gray-300">
-                  "{fb.review}"
-                </p>
-
-                {fb.photo && (
-                  <img
-                    src={fb.photo}
-                    alt="Proof"
-                    className="w-16 h-16 object-cover rounded-xl border border-gold cursor-pointer"
-                    onClick={() => setLightboxImg(fb.photo)}
-                  />
-                )}
-
-                {fb.adminResponse && (
-                  <div className="p-3 rounded-xl bg-forest-green/5 text-xs text-forest-green dark:text-gold">
-                    <strong>Admin Reply:</strong> {fb.adminResponse}
-                  </div>
-                )}
-
-                {/* Moderation Controls */}
-                <div className="pt-2 border-t border-gray-100 dark:border-dark-border flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    {fb.status !== 'Approved' && (
-                      <button
-                        onClick={() => handleModerateFeedback(fb.id, 'approve')}
-                        className="px-3 py-1 rounded-lg bg-emerald text-white font-bold text-[11px]"
-                      >
-                        Approve
-                      </button>
-                    )}
-                    {fb.status !== 'Rejected' && (
-                      <button
-                        onClick={() => handleModerateFeedback(fb.id, 'reject')}
-                        className="px-3 py-1 rounded-lg bg-red-600 text-white font-bold text-[11px]"
-                      >
-                        Reject
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setReplyModal(fb)}
-                      className="px-3 py-1 rounded-lg bg-gold/20 text-forest-green dark:text-gold font-bold text-[11px]"
-                    >
-                      Reply to Customer
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={() => handleModerateFeedback(fb.id, 'delete')}
-                    className="p-1 text-red-600 hover:text-red-800"
-                    title="Delete Review"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Admin Reply Modal */}
-          {replyModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-              <div className="bg-white dark:bg-dark-card rounded-3xl max-w-md w-full p-6 space-y-4 border border-gold shadow-2xl">
-                <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-                  Reply to {replyModal.name}'s Feedback
-                </h3>
-                <textarea
-                  rows={4}
-                  placeholder="Type official store reply..."
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-dark-border text-xs bg-white dark:bg-dark-bg focus:outline-none focus:border-gold"
-                />
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={() => handleModerateFeedback(replyModal.id, 'update', replyText)}
-                    className="px-5 py-2 rounded-xl bg-forest-green text-gold-light font-bold text-xs"
-                  >
-                    Submit Reply
-                  </button>
-                  <button
-                    onClick={() => setReplyModal(null)}
-                    className="px-4 py-2 rounded-xl border border-gray-300 text-xs"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
         </div>
       )}
 
