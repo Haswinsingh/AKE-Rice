@@ -169,7 +169,7 @@ export default function PosPage() {
           className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light border border-gold/40 shadow-md font-bold text-xs uppercase tracking-wider transition-all hover:scale-105 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4 text-gold" />
-          <span>← Back to Dashboard</span>
+          <span>← Back to Admin Dashboard</span>
         </button>
 
         <div className="flex items-center gap-2 text-xs text-gray-500">

@@ -6,7 +6,7 @@ import {
   Clock, Shield, ShieldAlert, Eye, ZoomIn, Copy, Download, 
   Printer, Plus, Trash2, Filter, RefreshCw, Send, Search, ExternalLink, RotateCw,
   Package, Edit2, Check, X, Boxes, AlertTriangle, Key, UserPlus, Lock, Layers, History as HistoryIcon,
-  Settings, Cloud, HardDrive, FileCheck, Database, Calendar, Undo2
+  Settings, Cloud, HardDrive, FileCheck, Database, Calendar, Undo2, ArrowLeft
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { adminService } from '../services/adminService';
@@ -53,34 +53,124 @@ const PERMISSION_LIST = [
 ];
 
 const ALL_NAV_PANELS = [
-  { id: 'analytics', name: 'Analytics Overview', icon: BarChart3, permission: 'analytics' },
-  { id: 'products', name: 'Product Management', icon: Package, permission: 'products' },
-  { id: 'sales-entry', name: 'Sales Entry / POS', icon: DollarSign, permission: 'sales_pos' },
-  { id: 'reports', name: 'Business Reports', icon: FileText, permission: 'reports' },
-  { id: 'pos-reports', name: 'Reports & Comparison', icon: FileSpreadsheet, permission: 'pos_reports' },
-  { id: 'drive-backup', name: 'Google Drive Backup', icon: Cloud, permission: 'reports' },
-  { id: 'orders', name: 'Store & WhatsApp Orders', icon: ShoppingBag, permission: 'orders' },
-  { id: 'feedback', name: 'Feedback Management', icon: MessageSquare, permission: 'feedback' },
-  { id: 'admin-users', name: 'Admin Management', icon: Shield, permission: 'admin_management' }
+  { 
+    id: 'analytics', 
+    name: 'Analytics Overview', 
+    icon: BarChart3, 
+    permission: 'analytics', 
+    route: '/admin/analytics', 
+    desc: 'Store revenue, sales breakdown, conversion rates, and dashboard analytics graphs.' 
+  },
+  { 
+    id: 'products', 
+    name: 'Product Management', 
+    icon: Package, 
+    permission: 'products', 
+    route: '/admin/products', 
+    desc: 'Unified product catalog, packaging sizes, rates, availability, warehouse inventory, and stock history.' 
+  },
+  { 
+    id: 'sales-entry', 
+    name: 'Sales Entry / POS', 
+    icon: DollarSign, 
+    permission: 'sales_pos', 
+    route: '/pos', 
+    desc: 'Offline retail billing (1 KG @ ₹195/kg) and wholesale bulk bag counter sales (25 KG @ ₹185/kg) with live stock deduction.' 
+  },
+  { 
+    id: 'pos-reports', 
+    name: 'POS Reports & Comparison', 
+    icon: FileSpreadsheet, 
+    permission: 'pos_reports', 
+    route: '/admin/pos-reports', 
+    desc: 'Offline counter sales reports, date-filtered metrics, transaction ledgers, and revenue comparison.' 
+  },
+  { 
+    id: 'reports', 
+    name: 'Business Reports', 
+    icon: FileText, 
+    permission: 'reports', 
+    route: '/admin/reports', 
+    desc: 'Date-filtered store reports, area revenue statements, and Excel/CSV business exports.' 
+  },
+  { 
+    id: 'drive-backup', 
+    name: 'Google Drive Backup', 
+    icon: Cloud, 
+    permission: 'reports', 
+    route: '/admin/drive-backup', 
+    desc: 'Automated monthly and daily transaction backups synchronized to Google Drive.' 
+  },
+  { 
+    id: 'orders', 
+    name: 'Store & WhatsApp Orders', 
+    icon: ShoppingBag, 
+    permission: 'orders', 
+    route: '/admin/orders', 
+    desc: 'Incoming online store and WhatsApp orders, payment screenshot verification, and deletion audit logs.' 
+  },
+  { 
+    id: 'feedback', 
+    name: 'Feedback Management', 
+    icon: MessageSquare, 
+    permission: 'feedback', 
+    route: '/admin/feedback', 
+    desc: 'Customer reviews moderation, testimonial public display approvals, and customer replies.' 
+  },
+  { 
+    id: 'admin-users', 
+    name: 'Admin Management', 
+    icon: Shield, 
+    permission: 'admin_management', 
+    route: '/admin/admin-users', 
+    desc: 'Administrator accounts roster, granular permissions assignment, and security audit logs.' 
+  },
+  { 
+    id: 'settings', 
+    name: 'Settings', 
+    icon: Settings, 
+    permission: 'settings', 
+    route: '/admin/settings', 
+    desc: 'Operational parameters, mill store contact details, security configurations, and preferences.' 
+  }
 ];
 
-export default function AdminPage({ initialPanel }) {
+export default function AdminPage({ initialPanel, dedicatedPanel, isHub }) {
   const { user, isAdmin, isSuperAdmin, hasPermission, refreshUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
 
-  const rawPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
-  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : (rawPanel === 'pos-staff' ? 'analytics' : rawPanel));
-  const [activePanel, setActivePanel] = useState(normalizedPanel === 'sales-entry' ? 'analytics' : (normalizedPanel || 'analytics'));
+  const path = location.pathname.toLowerCase().replace(/\/$/, '');
+
+  let routePanel = dedicatedPanel || initialPanel || searchParams.get('panel') || searchParams.get('tab');
+  if (!routePanel) {
+    if (path === '/admin/analytics') routePanel = 'analytics';
+    else if (path === '/admin/products') routePanel = 'products';
+    else if (path === '/admin/pos-reports') routePanel = 'pos-reports';
+    else if (path === '/admin/reports' || path === '/admin/business-reports') routePanel = 'reports';
+    else if (path === '/admin/drive-backup' || path === '/admin/backup') routePanel = 'drive-backup';
+    else if (path === '/admin/orders') routePanel = 'orders';
+    else if (path === '/admin/feedback') routePanel = 'feedback';
+    else if (path === '/admin/admin-users' || path === '/admin/management') routePanel = 'admin-users';
+    else if (path === '/admin/settings') routePanel = 'settings';
+    else if (path === '/admin/pos') routePanel = 'sales-entry';
+  }
+
+  if (routePanel === 'inventory') routePanel = 'products';
+  if (routePanel === 'customers') routePanel = 'orders';
+  if (routePanel === 'pos-staff') routePanel = 'analytics';
+
+  const isHubMode = isHub || (path === '/admin' && !routePanel);
+  const activePanel = isHubMode ? null : (routePanel || 'analytics');
 
   // Automatically navigate to dedicated POS page if sales-entry was requested
   useEffect(() => {
-    if (normalizedPanel === 'sales-entry') {
-      navigate('/pos');
+    if (activePanel === 'sales-entry') {
+      navigate('/pos', { replace: true });
     }
-  }, [normalizedPanel, navigate]);
+  }, [activePanel, navigate]);
   const [productSubTab, setProductSubTab] = useState('catalog'); // 'catalog' | 'stock_history'
   const [lightboxImg, setLightboxImg] = useState(null);
 
@@ -277,21 +367,12 @@ export default function AdminPage({ initialPanel }) {
 
   // Helper to verify if a panel is permitted for current user
   const isPanelAuthorized = (panelId) => {
+    if (!panelId) return true;
     if (isSuperAdmin) return true;
     const panelObj = ALL_NAV_PANELS.find(p => p.id === panelId);
     if (!panelObj) return true;
     return hasPermission(panelObj.permission);
   };
-
-  // Sync activePanel with URL query parameters (e.g. from profile dropdown or direct navigation)
-  useEffect(() => {
-    const qPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
-    if (qPanel && isPanelAuthorized(qPanel)) {
-      setActivePanel(qPanel);
-    } else if (location.pathname === '/admin' && !qPanel && !initialPanel) {
-      setActivePanel('analytics');
-    }
-  }, [searchParams, initialPanel, location.pathname, location.search]);
 
   // Dynamic navigation generated based on user permissions
   const navPanels = useMemo(() => {
@@ -303,7 +384,7 @@ export default function AdminPage({ initialPanel }) {
 
   // Load data for active panel only if permitted
   useEffect(() => {
-    if (isAdmin && isPanelAuthorized(activePanel)) {
+    if (isAdmin && activePanel && isPanelAuthorized(activePanel)) {
       if (activePanel === 'analytics') loadAnalytics();
       if (activePanel === 'products' || activePanel === 'inventory') {
         loadAdminProducts();
@@ -324,6 +405,29 @@ export default function AdminPage({ initialPanel }) {
       if (activePanel === 'admin-users') loadAdminUsers();
     }
   }, [isAdmin, activePanel, isSuperAdmin, user?.permissions]);
+
+  const handleRefreshCurrentModule = () => {
+    if (activePanel === 'analytics') loadAnalytics();
+    else if (activePanel === 'products' || activePanel === 'inventory') {
+      loadAdminProducts();
+      loadInventory();
+    }
+    else if (activePanel === 'sales-entry') loadRecentSales();
+    else if (activePanel === 'pos-reports') {
+      loadPosReports();
+      loadComparison();
+    }
+    else if (activePanel === 'reports') loadReports();
+    else if (activePanel === 'drive-backup') loadDriveStatus();
+    else if (activePanel === 'orders') {
+      loadOrders();
+      loadTrashOrders();
+    }
+    else if (activePanel === 'feedback') loadFeedback();
+    else if (activePanel === 'admin-users') loadAdminUsers();
+    else if (activePanel === 'settings') showToast('Settings preferences reloaded', 'info');
+    showToast('Module data refreshed', 'success');
+  };
 
   // Reactive reload on POS Reports filter adjustments
   useEffect(() => {
@@ -1420,159 +1524,186 @@ export default function AdminPage({ initialPanel }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12 space-y-8">
       
-      {/* ADMIN HEADER */}
-      <div className="bg-forest-green text-white p-6 sm:p-8 rounded-3xl border-2 border-gold shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6">
-        <div className="flex items-center gap-4 text-center sm:text-left">
-          <div className="w-14 h-14 rounded-2xl bg-gold/20 border border-gold flex items-center justify-center flex-shrink-0">
-            <Shield className="w-8 h-8 text-gold-light" />
-          </div>
-          <div>
-            <h1 className="brand-font text-2xl sm:text-3xl font-bold text-gold-light">
-              Admin Business Dashboard
-            </h1>
-            <p className="text-xs text-gray-300">
-              AKE Rice – Ashok Kavin Rice Operations & Operations Command
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (activePanel === 'analytics') loadAnalytics();
-              if (activePanel === 'products' || activePanel === 'inventory') {
-                loadAdminProducts();
-                loadInventory();
-              }
-              if (activePanel === 'sales-entry') loadRecentSales();
-              if (activePanel === 'pos-reports') {
-                loadPosReports();
-                loadComparison();
-              }
-              if (activePanel === 'orders') {
-                loadOrders();
-                loadTrashOrders();
-              }
-              if (activePanel === 'reports') loadReports();
-              if (activePanel === 'drive-backup') loadDriveStatus();
-              if (activePanel === 'feedback') loadFeedback();
-              if (activePanel === 'admin-users') loadAdminUsers();
-              if (activePanel === 'settings') showToast('Settings preferences loaded', 'info');
-            }}
-            className="p-2.5 rounded-xl bg-white/10 hover:bg-gold/20 text-gold-light transition-colors"
-            title="Refresh active panel"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-gold/20 text-gold-light border border-gold/30">
-            Administrator: {user?.name}
-          </span>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* RESPONSIVE DASHBOARD NAVIGATION GRID */}
-      {/* ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
-        {navPanels.map((p) => {
-          const Icon = p.icon;
-          const isActive = activePanel === p.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                if (p.id === 'sales-entry') {
-                  navigate('/pos');
-                } else {
-                  setActivePanel(p.id);
-                }
-              }}
-              className={`group relative flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl text-left transition-all duration-200 cursor-pointer w-full h-full min-h-[66px] sm:min-h-[72px] ${
-                isActive
-                  ? 'bg-forest-green text-white border-2 border-gold shadow-lg ring-2 ring-gold/20 scale-[1.01]'
-                  : 'bg-white dark:bg-dark-card text-gray-800 dark:text-gray-200 border border-gray-200/90 dark:border-dark-border hover:border-gold/60 hover:bg-gold/5 dark:hover:bg-gold/10 hover:shadow-md hover:-translate-y-0.5'
-              }`}
-            >
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
-                  isActive
-                    ? 'bg-gold/20 text-gold-light border border-gold/40'
-                    : 'bg-forest-green/5 dark:bg-dark-bg text-gold-dark dark:text-gold group-hover:bg-gold/15 group-hover:text-gold'
-                }`}
-              >
-                <Icon className="w-5 h-5 shrink-0" />
+      {isHubMode ? (
+        <>
+          {/* ADMIN HEADER */}
+          <div className="bg-forest-green text-white p-6 sm:p-8 rounded-3xl border-2 border-gold shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4 text-center sm:text-left">
+              <div className="w-14 h-14 rounded-2xl bg-gold/20 border border-gold flex items-center justify-center flex-shrink-0">
+                <Shield className="w-8 h-8 text-gold-light" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div
-                  className={`text-xs sm:text-sm font-bold leading-snug ${
-                    isActive
-                      ? 'text-gold-light'
-                      : 'text-gray-800 dark:text-gray-100 group-hover:text-forest-green dark:group-hover:text-gold'
-                  }`}
-                >
-                  {p.name}
-                </div>
+              <div>
+                <h1 className="brand-font text-2xl sm:text-3xl font-bold text-gold-light">
+                  Admin Business Dashboard
+                </h1>
+                <p className="text-xs text-gray-300">
+                  AKE Rice – Ashok Kavin Rice Operations & Operations Command
+                </p>
               </div>
-              {isActive && (
-                <div className="w-2 h-2 rounded-full bg-gold shrink-0 animate-pulse hidden sm:block" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* PANEL CONTENT OR UNAUTHORIZED ACCESS VIEW */}
-      {/* ========================================================================= */}
-      {!isCurrentPanelPermitted ? (
-        <div className="bg-white dark:bg-dark-card p-8 sm:p-12 rounded-3xl border-2 border-red-300 dark:border-red-900 shadow-2xl text-center space-y-6 max-w-2xl mx-auto my-8 animate-in fade-in">
-          <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-3xl flex items-center justify-center mx-auto border-2 border-red-200 dark:border-red-800 shadow-inner">
-            <ShieldAlert className="w-10 h-10" />
-          </div>
-
-          <div className="space-y-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border border-red-200 dark:border-red-800">
-              <Lock className="w-3.5 h-3.5" />
-              HTTP 403 • Unauthorized Module Access
-            </span>
-            <h3 className="brand-font text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-              Permission Required: {ALL_NAV_PANELS.find(p => p.id === activePanel)?.name || activePanel}
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-300 max-w-lg mx-auto">
-              Your administrator account (<strong>{user?.name || 'Admin'}</strong>) does not have the required{' '}
-              <code className="px-2 py-0.5 rounded bg-gray-100 dark:bg-dark-bg text-forest-green dark:text-gold font-mono font-bold">
-                {ALL_NAV_PANELS.find(p => p.id === activePanel)?.permission || activePanel}
-              </code>{' '}
-              permission to access this module.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-cream dark:bg-dark-bg border border-gold/30 text-xs text-left space-y-2">
-            <div className="font-bold text-forest-green dark:text-gold flex items-center gap-2">
-              <Shield className="w-4 h-4 text-gold" />
-              Access Control Policy
             </div>
-            <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-              {activePanel === 'sales-entry'
-                ? 'The Offline Sales Entry & POS Billing module is strictly restricted to administrator accounts that have been explicitly granted the sales_pos permission by the Super Admin.'
-                : 'Access to this management module is restricted by role-based administrator permissions.'}
-              {' '}Please contact the Super Admin (<strong>akerice1527@gmail.com</strong>) to request access.
-            </p>
+
+            <div className="flex items-center gap-3">
+              <span className="px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gold/20 text-gold-light border border-gold/30 shadow-sm">
+                Administrator: {user?.name} {isSuperAdmin ? '(Super Admin)' : '(Admin)'}
+              </span>
+            </div>
           </div>
 
-          <div className="pt-2 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setActivePanel(navPanels[0]?.id || 'analytics')}
-              className="px-6 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
-            >
-              Return to Permitted Modules
-            </button>
+          {/* MAIN ADMIN NAVIGATION HUB BANNER */}
+          <div className="bg-gradient-to-r from-forest-green/10 via-gold/10 to-forest-green/10 p-6 sm:p-7 rounded-3xl border border-gold/30 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="space-y-1 text-center md:text-left">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-forest-green text-gold-light text-[11px] font-bold uppercase tracking-wider">
+                <Layers className="w-3.5 h-3.5 text-gold" />
+                Main Admin Navigation Hub
+              </span>
+              <h2 className="brand-font text-2xl font-bold text-forest-green dark:text-gold-light">
+                Administration Control Center
+              </h2>
+              <p className="text-xs text-gray-600 dark:text-gray-300 max-w-2xl leading-relaxed">
+                Select an administrative module below to open its dedicated page. Every module features independent URL routing, full auditing controls, and instant navigation back to this hub.
+              </p>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-white dark:bg-dark-card px-4 py-2 rounded-xl border border-gold/20 text-center shadow-sm">
+              <span className="font-bold text-forest-green dark:text-gold text-sm">{navPanels.length}</span> Modules Permitted
+            </div>
           </div>
-        </div>
+
+          {/* RESPONSIVE DASHBOARD NAVIGATION GRID */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {navPanels.map((p) => {
+              const Icon = p.icon;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => {
+                    if (p.id === 'sales-entry') {
+                      navigate('/pos');
+                    } else {
+                      navigate(p.route);
+                    }
+                  }}
+                  className="group relative bg-white dark:bg-dark-card p-6 rounded-3xl border border-gray-200/90 dark:border-dark-border hover:border-gold/80 hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-pointer flex flex-col justify-between"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="w-12 h-12 rounded-2xl bg-forest-green/10 dark:bg-forest-green/20 text-forest-green dark:text-gold flex items-center justify-center group-hover:bg-forest-green group-hover:text-gold-light transition-all duration-300 border border-gold/20 shadow-sm">
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-gray-100 dark:bg-dark-bg text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-dark-border group-hover:border-gold/40 group-hover:text-gold transition-colors">
+                        Dedicated Page
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="brand-font text-lg font-bold text-gray-900 dark:text-white group-hover:text-forest-green dark:group-hover:text-gold transition-colors">
+                        {p.name}
+                      </h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-3 leading-relaxed">
+                        {p.desc}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 mt-4 border-t border-gray-100 dark:border-dark-border/60 flex items-center justify-between">
+                    <span className="text-xs font-mono text-gray-400 group-hover:text-forest-green dark:group-hover:text-gold transition-colors">
+                      {p.route}
+                    </span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-forest-green dark:text-gold group-hover:translate-x-1 transition-transform cursor-pointer"
+                    >
+                      <span>Open Module</span>
+                      <span>→</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       ) : (
         <>
+          {/* DEDICATED MODULE TOP BAR WITH "← Back to Admin Dashboard" */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-2 border-b border-gold/20">
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light border border-gold/40 shadow-md font-bold text-xs uppercase tracking-wider transition-all hover:scale-105 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-gold" />
+              <span>← Back to Admin Dashboard</span>
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <span className="hidden sm:inline font-semibold">Module:</span>
+                <span className="px-3 py-1 rounded-full bg-forest-green/10 text-forest-green dark:text-gold font-bold border border-gold/20">
+                  {ALL_NAV_PANELS.find(p => p.id === activePanel)?.name || activePanel}
+                </span>
+              </div>
+
+              <button
+                onClick={handleRefreshCurrentModule}
+                className="p-2.5 rounded-xl bg-forest-green/10 hover:bg-gold/20 text-forest-green dark:text-gold-light border border-gold/30 transition-colors cursor-pointer"
+                title="Refresh module data"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-gold/15 text-forest-green dark:text-gold border border-gold/30 hidden md:inline">
+                {user?.name}
+              </span>
+            </div>
+          </div>
+
+          {/* PANEL CONTENT OR UNAUTHORIZED ACCESS VIEW */}
+          {!isCurrentPanelPermitted ? (
+            <div className="bg-white dark:bg-dark-card p-8 sm:p-12 rounded-3xl border-2 border-red-300 dark:border-red-900 shadow-2xl text-center space-y-6 max-w-2xl mx-auto my-8 animate-in fade-in">
+              <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-3xl flex items-center justify-center mx-auto border-2 border-red-200 dark:border-red-800 shadow-inner">
+                <ShieldAlert className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border border-red-200 dark:border-red-800">
+                  <Lock className="w-3.5 h-3.5" />
+                  HTTP 403 • Unauthorized Module Access
+                </span>
+                <h3 className="brand-font text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+                  Permission Required: {ALL_NAV_PANELS.find(p => p.id === activePanel)?.name || activePanel}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 max-w-lg mx-auto">
+                  Your administrator account (<strong>{user?.name || 'Admin'}</strong>) does not have the required{' '}
+                  <code className="px-2 py-0.5 rounded bg-gray-100 dark:bg-dark-bg text-forest-green dark:text-gold font-mono font-bold">
+                    {ALL_NAV_PANELS.find(p => p.id === activePanel)?.permission || activePanel}
+                  </code>{' '}
+                  permission to access this module.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-cream dark:bg-dark-bg border border-gold/30 text-xs text-left space-y-2">
+                <div className="font-bold text-forest-green dark:text-gold flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gold" />
+                  Access Control Policy
+                </div>
+                <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+                  {activePanel === 'sales-entry'
+                    ? 'The Offline Sales Entry & POS Billing module is strictly restricted to administrator accounts that have been explicitly granted the sales_pos permission by the Super Admin.'
+                    : 'Access to this management module is restricted by role-based administrator permissions.'}
+                  {' '}Please contact the Super Admin (<strong>akerice1527@gmail.com</strong>) to request access.
+                </p>
+              </div>
+
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin')}
+                  className="px-6 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105 cursor-pointer"
+                >
+                  ← Back to Admin Dashboard
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           {/* ========================================================================= */}
           {/* 1. ANALYTICS OVERVIEW PANEL */}
           {/* ========================================================================= */}
@@ -2306,7 +2437,7 @@ export default function AdminPage({ initialPanel }) {
                   <span>Print</span>
                 </button>
                 <button
-                  onClick={() => setActivePanel('drive-backup')}
+                  onClick={() => navigate('/admin/drive-backup')}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-forest-green/10 dark:bg-gold/15 border border-forest-green/30 dark:border-gold/30 text-forest-green dark:text-gold font-bold text-xs uppercase tracking-wider hover:bg-forest-green/20"
                   title="View Google Drive Monthly Excel Backup"
                 >
@@ -4785,11 +4916,11 @@ export default function AdminPage({ initialPanel }) {
 
             <button
               type="button"
-              onClick={() => setActivePanel('analytics')}
+              onClick={() => navigate('/admin')}
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light border border-gold/40 shadow-sm font-bold text-xs uppercase tracking-wider transition-all hover:scale-105 cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4 text-gold" />
-              <span>← Back to Dashboard</span>
+              <span>← Back to Admin Dashboard</span>
             </button>
           </div>
 
@@ -4909,21 +5040,21 @@ export default function AdminPage({ initialPanel }) {
               <div className="grid grid-cols-2 gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => setActivePanel('products')}
+                  onClick={() => navigate('/admin/products')}
                   className="p-3 rounded-2xl bg-gray-50 dark:bg-dark-bg hover:bg-gold/10 border border-gray-200 dark:border-dark-border text-left font-bold text-xs text-forest-green dark:text-gold transition-colors cursor-pointer"
                 >
                   🌾 Product Management
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePanel('admin-users')}
+                  onClick={() => navigate('/admin/admin-users')}
                   className="p-3 rounded-2xl bg-gray-50 dark:bg-dark-bg hover:bg-gold/10 border border-gray-200 dark:border-dark-border text-left font-bold text-xs text-forest-green dark:text-gold transition-colors cursor-pointer"
                 >
                   🛡️ Admin Users
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActivePanel('orders')}
+                  onClick={() => navigate('/admin/orders')}
                   className="p-3 rounded-2xl bg-gray-50 dark:bg-dark-bg hover:bg-gold/10 border border-gray-200 dark:border-dark-border text-left font-bold text-xs text-forest-green dark:text-gold transition-colors cursor-pointer"
                 >
                   🛍️ Store Orders
@@ -4933,6 +5064,8 @@ export default function AdminPage({ initialPanel }) {
           </div>
 
         </div>
+      )}
+      </>
       )}
       </>
       )}
@@ -5765,7 +5898,7 @@ export default function AdminPage({ initialPanel }) {
                   setSelectedStaffDetail(null);
                   setSelectedReportStaff(staffId);
                   setActiveReportTab('reports');
-                  setActivePanel('pos-reports');
+                  navigate('/admin/pos-reports');
                 }}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-forest-green hover:bg-deep-green text-gold-light text-xs font-bold uppercase tracking-wider shadow-md cursor-pointer"
               >

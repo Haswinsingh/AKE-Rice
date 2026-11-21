@@ -168,7 +168,7 @@ export default function Navbar() {
                         </Link>
 
                         <Link
-                          to="/admin?panel=settings"
+                          to="/admin/settings"
                           onClick={() => setUserDropdownOpen(false)}
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
                         >
@@ -304,7 +304,7 @@ export default function Navbar() {
                     </Link>
 
                     <Link
-                      to="/admin?panel=settings"
+                      to="/admin/settings"
                       onClick={() => setMobileMenuOpen(false)}
                       className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
                     >
