@@ -36,22 +36,11 @@ export default function App() {
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/admin/login" element={<LoginPage />} />
-                  <Route path="/admin" element={<AdminPage isHub />} />
-                  <Route path="/admin/analytics" element={<AdminPage dedicatedPanel="analytics" />} />
-                  <Route path="/admin/products" element={<AdminPage dedicatedPanel="products" />} />
-                  <Route path="/admin/pos" element={<Navigate to="/pos" replace />} />
-                  <Route path="/admin/pos-reports" element={<AdminPage dedicatedPanel="pos-reports" />} />
-                  <Route path="/admin/business-reports" element={<AdminPage dedicatedPanel="reports" />} />
-                  <Route path="/admin/reports" element={<AdminPage dedicatedPanel="reports" />} />
-                  <Route path="/admin/backup" element={<AdminPage dedicatedPanel="drive-backup" />} />
-                  <Route path="/admin/drive-backup" element={<AdminPage dedicatedPanel="drive-backup" />} />
-                  <Route path="/admin/orders" element={<AdminPage dedicatedPanel="orders" />} />
-                  <Route path="/admin/feedback" element={<AdminPage dedicatedPanel="feedback" />} />
-                  <Route path="/admin/management" element={<AdminPage dedicatedPanel="admin-users" />} />
-                  <Route path="/admin/admin-users" element={<AdminPage dedicatedPanel="admin-users" />} />
-                  <Route path="/admin/settings" element={<AdminPage dedicatedPanel="settings" />} />
-                  <Route path="/pos" element={<PosPage />} />
-                  <Route path="/pos-dashboard" element={<Navigate to="/pos" replace />} />
+                  <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/admin/login" element={<LoginPage />} />
+                  <Route path="/admin/pos" element={<Navigate to="/admin?panel=sales-entry" replace />} />
+                  <Route path="/pos" element={<Navigate to="/admin?panel=sales-entry" replace />} />
+                  <Route path="/pos-dashboard" element={<Navigate to="/admin?panel=sales-entry" replace />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </main>
