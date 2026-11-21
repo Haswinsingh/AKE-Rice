@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Sale = require('../models/Sale');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const Counter = require('../models/Counter');
 const OrderAuditLog = require('../models/OrderAuditLog');
 const { generateNextOrderId } = require('../services/orderIdService');
 const { generateWaTextForOrder, getWhatsAppUrl } = require('../services/whatsappService');
@@ -748,9 +749,10 @@ exports.deleteAllOrders = async (req, res) => {
       reason: 'Super Admin executed permanent deletion of all order records.'
     }).catch(e => console.error('[OrderAuditLog] Delete all error:', e));
 
-    // 2. Permanently delete all records from MongoDB
+    // 2. Permanently delete all records from MongoDB and local document store
     await Order.deleteMany({});
     await Sale.deleteMany({});
+    await Counter.findByIdAndUpdate('orderId', { seq: 0 }, { upsert: true }).catch(() => {});
 
     // 3. Update Google Drive backup if configured (reset monthly workbook without touching unrelated files)
     if (typeof googleDriveService.handleAllOrdersDeleted === 'function') {

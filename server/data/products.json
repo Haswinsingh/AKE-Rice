@@ -18,7 +18,7 @@
   {
     "_id": "3b8628233746ba4d88efb471",
     "createdAt": "2026-11-19T08:26:21.524Z",
-    "updatedAt": "2026-11-20T04:01:11.354Z",
+    "updatedAt": "2026-11-21T07:59:03.156Z",
     "id": "1kg",
     "name": "1 KG Rice",
     "tamilName": "1 கிலோ கொப்பம்பட்டி சீரக சம்பா அரிசி",
@@ -33,10 +33,10 @@
       "assets/packet_original.jpg",
       "assets/manual_packing.jpg"
     ],
-    "stock": 2978,
+    "stock": 2980,
     "initialStockKg": 9500,
-    "availableStockKg": 2978,
-    "totalOrderedKg": 219,
+    "availableStockKg": 2980,
+    "totalOrderedKg": 217,
     "lowStockThresholdKg": 200,
     "stockStatus": "IN STOCK",
     "isAvailable": true,

@@ -1030,6 +1030,13 @@ async function saveWorkbookToDrive(drive, workbook, yearFolderId, existingFileId
  */
 async function exportOrder(order) {
   const startTime = Date.now();
+
+  // If order is deleted or test order, remove it from Drive workbook
+  if (order.isDeleted || order.isTest) {
+    if (!isConfigured()) return { success: true, message: 'Drive not configured, deletion local only.' };
+    return await removeOrderFromDrive(order.id, order.date || order.createdAt);
+  }
+
   if (!isConfigured()) {
     console.warn('[GoogleDrive] Service account credentials not configured. Skipping export.');
     if (order.save) {
@@ -1040,11 +1047,6 @@ async function exportOrder(order) {
       await order.save().catch(() => {});
     }
     return { success: false, reason: 'not_configured' };
-  }
-
-  // If order is deleted or test order, remove it from Drive workbook
-  if (order.isDeleted || order.isTest) {
-    return await removeOrderFromDrive(order.id, order.date || order.createdAt);
   }
 
   try {
@@ -1182,6 +1184,13 @@ async function removeOrderFromDrive(orderId, orderDate) {
  */
 async function exportSale(sale) {
   const startTime = Date.now();
+
+  // If sale is deleted or test sale, remove from Drive workbook
+  if (sale.isDeleted || sale.isTest) {
+    if (!isConfigured()) return { success: true, message: 'Drive not configured, deletion local only.' };
+    return await removeSaleFromDrive(sale.id, sale.date || sale.transactionDate || sale.createdAt);
+  }
+
   if (!isConfigured()) {
     console.warn('[GoogleDrive] Service account credentials not configured. Skipping export.');
     if (sale.save) {
@@ -1192,11 +1201,6 @@ async function exportSale(sale) {
       await sale.save().catch(() => {});
     }
     return { success: false, reason: 'not_configured' };
-  }
-
-  // If sale is deleted or test sale, remove from Drive workbook
-  if (sale.isDeleted || sale.isTest) {
-    return await removeSaleFromDrive(sale.id, sale.date || sale.transactionDate || sale.createdAt);
   }
 
   try {

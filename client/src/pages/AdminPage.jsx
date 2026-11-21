@@ -392,21 +392,31 @@ export default function AdminPage({ initialPanel }) {
 
   const handleDeleteOrder = async () => {
     if (!deleteOrderModal?.order?.id) return;
+    const targetOrder = deleteOrderModal.order;
+    const targetId = targetOrder.id;
     try {
       setDeletingOrder(true);
-      const res = await orderService.deleteOrder(deleteOrderModal.order.id, deleteReasonInput);
+      // Optimistic immediate update to local state
+      setOrders(prev => prev.filter(o => o.id !== targetId));
+      setTrashOrders(prev => [{ ...targetOrder, isDeleted: true, deletedAt: new Date().toISOString(), deletionReason: deleteReasonInput || 'Order deleted by administrator' }, ...prev.filter(o => o.id !== targetId)]);
+
+      const res = await orderService.deleteOrder(targetId, deleteReasonInput);
       if (res && res.success) {
-        showToast(`Order ${deleteOrderModal.order.id} moved to Trash.`, 'success');
+        showToast(`Order ${targetId} moved to Trash.`, 'success');
         setDeleteOrderModal(null);
         setDeleteReasonInput('');
         loadOrders();
         loadTrashOrders();
         loadDriveStatus();
       } else {
-        showToast(res.message || 'Failed to delete order', 'error');
+        showToast(res?.message || 'Failed to delete order', 'error');
+        loadOrders();
+        loadTrashOrders();
       }
     } catch (err) {
       showToast(err.message || 'Failed to delete order', 'error');
+      loadOrders();
+      loadTrashOrders();
     } finally {
       setDeletingOrder(false);
     }
@@ -415,6 +425,13 @@ export default function AdminPage({ initialPanel }) {
   const handleRestoreOrder = async (orderId) => {
     try {
       setRestoringOrderId(orderId);
+      // Optimistic update
+      const restored = trashOrders.find(o => o.id === orderId);
+      if (restored) {
+        setTrashOrders(prev => prev.filter(o => o.id !== orderId));
+        setOrders(prev => [{ ...restored, isDeleted: false }, ...prev.filter(o => o.id !== orderId)]);
+      }
+
       const res = await orderService.restoreOrder(orderId);
       if (res && res.success) {
         showToast(`Order ${orderId} restored successfully!`, 'success');
@@ -422,10 +439,14 @@ export default function AdminPage({ initialPanel }) {
         loadTrashOrders();
         loadDriveStatus();
       } else {
-        showToast(res.message || 'Failed to restore order', 'error');
+        showToast(res?.message || 'Failed to restore order', 'error');
+        loadOrders();
+        loadTrashOrders();
       }
     } catch (err) {
       showToast(err.message || 'Failed to restore order', 'error');
+      loadOrders();
+      loadTrashOrders();
     } finally {
       setRestoringOrderId(null);
     }
@@ -436,6 +457,10 @@ export default function AdminPage({ initialPanel }) {
     const targetId = permanentDeleteModal.order.id;
     try {
       setPermanentDeleting(true);
+      // Optimistic immediate update
+      setTrashOrders(prev => prev.filter(o => o.id !== targetId));
+      setOrders(prev => prev.filter(o => o.id !== targetId));
+
       const res = await orderService.permanentDeleteOrder(targetId);
       if (res && res.success) {
         showToast(`Order ${targetId} permanently deleted.`, 'success');
@@ -447,9 +472,13 @@ export default function AdminPage({ initialPanel }) {
         loadDriveStatus();
       } else {
         showToast(res?.message || 'Failed to permanently delete order', 'error');
+        loadTrashOrders();
+        loadOrders();
       }
     } catch (err) {
       showToast(err.message || 'Failed to permanently delete order', 'error');
+      loadTrashOrders();
+      loadOrders();
     } finally {
       setPermanentDeleting(false);
     }
@@ -490,12 +519,31 @@ export default function AdminPage({ initialPanel }) {
     }
     try {
       setDeletingAllOrders(true);
+      // Optimistic immediate global state reset across all dependent modules
+      setOrders([]);
+      setTrashOrders([]);
+      setRecentSales([]);
+      setReportRows([]);
+      setReportRevenue(0);
+      setAnalytics(prev => ({
+        ...prev,
+        totalRevenue: 0,
+        totalOrders: 0,
+        deliveredOrders: 0,
+        pendingOrders: 0,
+        onlineOrdersCount: 0,
+        posOrdersCount: 0,
+        todayRevenue: 0,
+        monthRevenue: 0,
+        last7Days: prev?.last7Days?.map(d => ({ ...d, revenue: 0, orderCount: 0 })) || []
+      }));
+
       const res = await orderService.deleteAllOrders('DELETE ALL ORDERS');
       if (res && res.success) {
         showToast(res.message || 'All order records deleted successfully.', 'success');
         setDeleteAllModal(false);
         setDeleteConfirmText('');
-        // Immediately refresh all dependent modules across dashboard
+        // Immediately refresh all dependent modules across dashboard from backend
         loadOrders();
         loadTrashOrders();
         loadAnalytics();
@@ -505,9 +553,15 @@ export default function AdminPage({ initialPanel }) {
         loadDriveStatus();
       } else {
         showToast(res?.message || 'Failed to delete all orders', 'error');
+        loadOrders();
+        loadTrashOrders();
+        loadAnalytics();
       }
     } catch (err) {
       showToast(err.message || 'Failed to delete all orders', 'error');
+      loadOrders();
+      loadTrashOrders();
+      loadAnalytics();
     } finally {
       setDeletingAllOrders(false);
     }
@@ -517,6 +571,9 @@ export default function AdminPage({ initialPanel }) {
   const handleConfirmPurgeAllTrash = async () => {
     try {
       setPurgingAllTrash(true);
+      // Optimistic immediate reset
+      setTrashOrders([]);
+
       const res = await orderService.purgeAllTrashOrders();
       if (res && res.success) {
         showToast(res.message || 'Trash archive emptied successfully.', 'success');
@@ -526,9 +583,11 @@ export default function AdminPage({ initialPanel }) {
         loadDriveStatus();
       } else {
         showToast(res?.message || 'Failed to purge trash orders', 'error');
+        loadTrashOrders();
       }
     } catch (err) {
       showToast(err.message || 'Failed to purge trash orders', 'error');
+      loadTrashOrders();
     } finally {
       setPurgingAllTrash(false);
     }

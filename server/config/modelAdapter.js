@@ -6,15 +6,17 @@ const mongoose = require('mongoose');
 const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const SEED_DIR = path.join(__dirname, '..', 'data');
 const DATA_DIR = isVercel ? '/tmp/ake_data' : SEED_DIR;
+const CATALOG_COLLECTIONS = ['products', 'users', 'counters'];
 
 if (!fs.existsSync(DATA_DIR)) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    // Pre-populate /tmp from bundled seed files on serverless
+    // Pre-populate /tmp from bundled seed files for CATALOG collections only (never stale order/sales records)
     if (isVercel && fs.existsSync(SEED_DIR)) {
       const files = fs.readdirSync(SEED_DIR);
       for (const file of files) {
-        if (file.endsWith('.json')) {
+        const name = path.basename(file, '.json');
+        if (file.endsWith('.json') && CATALOG_COLLECTIONS.includes(name)) {
           fs.copyFileSync(path.join(SEED_DIR, file), path.join(DATA_DIR, file));
         }
       }
@@ -75,7 +77,7 @@ function createModel(collectionName, mongooseModel) {
   global._inMemoryCollections = global._inMemoryCollections || {};
 
   const readData = () => {
-    if (global._inMemoryCollections[collectionName]) {
+    if (global._inMemoryCollections[collectionName] !== undefined) {
       return global._inMemoryCollections[collectionName];
     }
     try {
@@ -87,7 +89,8 @@ function createModel(collectionName, mongooseModel) {
       }
     } catch (e) {}
 
-    if (filePath !== path.join(SEED_DIR, `${collectionName}.json`)) {
+    // Only fall back to SEED_DIR for catalog collections if filePath does not exist
+    if (CATALOG_COLLECTIONS.includes(collectionName) && filePath !== path.join(SEED_DIR, `${collectionName}.json`)) {
       try {
         const seedPath = path.join(SEED_DIR, `${collectionName}.json`);
         if (fs.existsSync(seedPath)) {
@@ -109,6 +112,12 @@ function createModel(collectionName, mongooseModel) {
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
       // Non-fatal on serverless environments
+    }
+    // Also synchronize local SEED_DIR if running locally or writable so no fallback resurrects deleted data
+    if (filePath !== path.join(SEED_DIR, `${collectionName}.json`)) {
+      try {
+        fs.writeFileSync(path.join(SEED_DIR, `${collectionName}.json`), JSON.stringify(data, null, 2), 'utf-8');
+      } catch (e) {}
     }
   };
 
@@ -203,31 +212,33 @@ function createModel(collectionName, mongooseModel) {
     }
 
     async save() {
+      let plain = this.toObject();
       if (getMongooseConnected()) {
-        const plain = this.toObject();
-        if (this._isPersisted || (this._id && !this._isNew)) {
-          const res = await mongooseModel.findByIdAndUpdate(this._id, plain, { new: true, upsert: true });
-          if (res) Object.assign(this, res.toObject ? res.toObject() : res);
-          return this;
-        }
         try {
-          const doc = new mongooseModel(plain);
-          const res = await doc.save();
-          this._isPersisted = true;
-          this._isNew = false;
-          Object.assign(this, res.toObject ? res.toObject() : res);
-          return this;
+          if (this._isPersisted || (this._id && !this._isNew)) {
+            const res = await mongooseModel.findByIdAndUpdate(this._id, plain, { new: true, upsert: true });
+            if (res) plain = res.toObject ? res.toObject() : res;
+          } else {
+            const doc = new mongooseModel(plain);
+            const res = await doc.save();
+            this._isPersisted = true;
+            this._isNew = false;
+            if (res) plain = res.toObject ? res.toObject() : res;
+          }
+          Object.assign(this, plain);
         } catch (saveErr) {
           if (saveErr.code === 11000 && this._id) {
             const res = await mongooseModel.findByIdAndUpdate(this._id, plain, { new: true });
-            if (res) Object.assign(this, res.toObject ? res.toObject() : res);
+            if (res) plain = res.toObject ? res.toObject() : res;
             this._isPersisted = true;
-            return this;
+            Object.assign(this, plain);
+          } else {
+            console.error(`[ModelAdapter Error] save ${collectionName}:`, saveErr.message);
           }
-          throw saveErr;
         }
       }
 
+      // ALWAYS synchronize local storage and in-memory store
       const list = readData();
       const existingIdx = list.findIndex(x => (x.id && x.id === this.id) || (x._id && x._id === this._id));
       this.updatedAt = new Date().toISOString();
@@ -278,9 +289,15 @@ function createModel(collectionName, mongooseModel) {
     }
 
     static async findOneAndUpdate(query, update, options = {}) {
+      let mongooseResult = null;
       if (getMongooseConnected()) {
-        return await mongooseModel.findOneAndUpdate(query, update, options);
+        try {
+          mongooseResult = await mongooseModel.findOneAndUpdate(query, update, options);
+        } catch (e) {
+          console.error(`[ModelAdapter Error] findOneAndUpdate ${collectionName}:`, e.message);
+        }
       }
+
       const list = readData();
       let matchIdx = list.findIndex(item => matchesQuery(item, query));
       
@@ -305,9 +322,9 @@ function createModel(collectionName, mongooseModel) {
           }
           list.push(newDoc);
           writeData(list);
-          return new ModelWrapper(newDoc);
+          return mongooseResult ? new ModelWrapper(mongooseResult) : new ModelWrapper(newDoc);
         }
-        return null;
+        return mongooseResult ? new ModelWrapper(mongooseResult) : null;
       }
 
       for (const [k, v] of Object.entries(updateData)) {
@@ -322,7 +339,7 @@ function createModel(collectionName, mongooseModel) {
       }
       list[matchIdx].updatedAt = new Date().toISOString();
       writeData(list);
-      return new ModelWrapper(list[matchIdx]);
+      return mongooseResult ? new ModelWrapper(mongooseResult) : new ModelWrapper(list[matchIdx]);
     }
 
     static async findByIdAndUpdate(id, update, options = {}) {
@@ -330,17 +347,22 @@ function createModel(collectionName, mongooseModel) {
     }
 
     static async findOneAndDelete(query) {
+      let mongooseResult = null;
       if (getMongooseConnected()) {
-        return await mongooseModel.findOneAndDelete(query);
+        try {
+          mongooseResult = await mongooseModel.findOneAndDelete(query);
+        } catch (e) {
+          console.error(`[ModelAdapter Error] findOneAndDelete ${collectionName}:`, e.message);
+        }
       }
       const list = readData();
       const matchIdx = list.findIndex(item => matchesQuery(item, query));
       if (matchIdx !== -1) {
         const removed = list.splice(matchIdx, 1)[0];
         writeData(list);
-        return new ModelWrapper(removed);
+        return mongooseResult ? new ModelWrapper(mongooseResult) : new ModelWrapper(removed);
       }
-      return null;
+      return mongooseResult ? new ModelWrapper(mongooseResult) : null;
     }
 
     static async findByIdAndDelete(id) {
@@ -348,28 +370,43 @@ function createModel(collectionName, mongooseModel) {
     }
 
     static async deleteOne(query) {
+      let result = { acknowledged: true, deletedCount: 0 };
       if (getMongooseConnected()) {
-        return await mongooseModel.deleteOne(query);
+        try {
+          result = await mongooseModel.deleteOne(query);
+        } catch (e) {
+          console.error(`[ModelAdapter Error] deleteOne ${collectionName}:`, e.message);
+        }
       }
       const list = readData();
       const matchIdx = list.findIndex(item => matchesQuery(item, query));
       if (matchIdx !== -1) {
         list.splice(matchIdx, 1);
         writeData(list);
-        return { acknowledged: true, deletedCount: 1 };
+        if (!getMongooseConnected()) {
+          result = { acknowledged: true, deletedCount: 1 };
+        }
       }
-      return { acknowledged: true, deletedCount: 0 };
+      return result;
     }
 
     static async deleteMany(query) {
+      let result = { acknowledged: true, deletedCount: 0 };
       if (getMongooseConnected()) {
-        return await mongooseModel.deleteMany(query);
+        try {
+          result = await mongooseModel.deleteMany(query);
+        } catch (e) {
+          console.error(`[ModelAdapter Error] deleteMany ${collectionName}:`, e.message);
+        }
       }
       const list = readData();
       const kept = list.filter(item => !matchesQuery(item, query));
       const deletedCount = list.length - kept.length;
       writeData(kept);
-      return { acknowledged: true, deletedCount };
+      if (!getMongooseConnected()) {
+        result = { acknowledged: true, deletedCount };
+      }
+      return result;
     }
 
     static async insertMany(items) {
