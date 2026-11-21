@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, X, Sun, Moon, ShoppingBag, User, 
   LogOut, ChevronDown, Shield, Phone,
-  FileText, Users, MessageSquare
+  FileText, Users, MessageSquare, Package
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';

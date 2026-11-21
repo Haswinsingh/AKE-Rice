@@ -605,6 +605,24 @@ export default function AdminPage({ initialPanel }) {
     }
   };
 
+  const loadAdminProducts = () => {
+    setLoadingProducts(true);
+    productService.getAllProductsAdmin()
+      .then(res => {
+        if (res.success) setProducts(res.products || []);
+      })
+      .catch(() => showToast('Failed to load products', 'error'))
+      .finally(() => setLoadingProducts(false));
+  };
+
+  const loadFeedback = () => {
+    feedbackService.getAdminFeedback({ status: feedbackFilter })
+      .then(res => {
+        if (res.success) setAdminFeedback(res.reviews || []);
+      })
+      .catch(() => {});
+  };
+
   // Submit POS Sale
   const handlePosSubmit = async (e) => {
     e.preventDefault();
