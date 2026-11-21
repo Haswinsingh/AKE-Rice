@@ -15,26 +15,8 @@ import FeedbackPage from './pages/FeedbackPage';
 import AccountPage from './pages/AccountPage';
 import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
-import PosStaffDashboard from './pages/PosStaffDashboard';
+import PosPage from './pages/PosPage';
 import { useAuth } from './context/AuthContext';
-
-function PosRouteWrapper() {
-  const { user, isPosStaff, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-24 text-center">
-        <div className="animate-spin w-10 h-10 border-4 border-gold border-t-transparent rounded-full mx-auto" />
-      </div>
-    );
-  }
-  if (!user) {
-    return <Navigate to="/login?redirect=/pos" replace />;
-  }
-  if (isPosStaff) {
-    return <PosStaffDashboard />;
-  }
-  return <AdminPage initialPanel="sales-entry" />;
-}
 
 export default function App() {
   return (
@@ -55,9 +37,9 @@ export default function App() {
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/admin/login" element={<LoginPage />} />
                   <Route path="/admin" element={<AdminPage />} />
-                  <Route path="/admin/pos" element={<AdminPage initialPanel="sales-entry" />} />
-                  <Route path="/pos" element={<PosRouteWrapper />} />
-                  <Route path="/pos-dashboard" element={<PosStaffDashboard />} />
+                  <Route path="/admin/pos" element={<Navigate to="/pos" replace />} />
+                  <Route path="/pos" element={<PosPage />} />
+                  <Route path="/pos-dashboard" element={<Navigate to="/pos" replace />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </main>

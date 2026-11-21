@@ -197,13 +197,11 @@ export default function LoginPage() {
         
         // Dynamic role-based redirection
         if (res.role === 'admin') {
-          const dest = redirectParam && redirectParam.startsWith('/admin') ? redirectParam : '/admin';
+          const dest = redirectParam && (redirectParam.startsWith('/admin') || redirectParam.startsWith('/pos')) ? redirectParam : '/admin';
           navigate(dest, { replace: true });
-        } else if (res.role === 'pos_staff') {
-          navigate('/pos', { replace: true });
         } else {
           // Customer: if redirectParam was set (e.g. from Order Now flow), return to it
-          const dest = redirectParam && !redirectParam.startsWith('/admin') ? redirectParam : '/account';
+          const dest = redirectParam && !redirectParam.startsWith('/admin') && !redirectParam.startsWith('/pos') ? redirectParam : '/account';
           navigate(dest, { replace: true });
         }
       } else {

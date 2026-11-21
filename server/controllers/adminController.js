@@ -506,7 +506,6 @@ const DEFAULT_ADMIN_PERMISSIONS = {
   feedback: true,
   admin_management: false,
   settings: false,
-  pos_staff_management: false,
   pos_reports: false,
   pos_reports_all_staff: false
 };
@@ -523,7 +522,6 @@ const SUPER_ADMIN_PERMISSIONS = {
   feedback: true,
   admin_management: true,
   settings: true,
-  pos_staff_management: true,
   pos_reports: true,
   pos_reports_all_staff: true
 };
@@ -957,7 +955,6 @@ exports.updateAdminUser = async (req, res) => {
           feedback: Boolean(req.body.permissions.feedback),
           admin_management: Boolean(req.body.permissions.admin_management),
           settings: Boolean(req.body.permissions.settings),
-          pos_staff_management: Boolean(req.body.permissions.pos_staff_management),
           pos_reports: Boolean(req.body.permissions.pos_reports),
           pos_reports_all_staff: Boolean(req.body.permissions.pos_reports_all_staff)
         };
@@ -1029,7 +1026,6 @@ exports.updateAdminPermissions = async (req, res) => {
       feedback: Boolean(permissions.feedback),
       admin_management: Boolean(permissions.admin_management),
       settings: Boolean(permissions.settings),
-      pos_staff_management: Boolean(permissions.pos_staff_management),
       pos_reports: Boolean(permissions.pos_reports),
       pos_reports_all_staff: Boolean(permissions.pos_reports_all_staff)
     };

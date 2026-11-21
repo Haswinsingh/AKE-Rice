@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   Menu, X, Sun, Moon, ShoppingBag, User, 
   LogOut, ChevronDown, Shield, Phone,
-  FileText, Users, MessageSquare, Package
+  FileText, Users, MessageSquare, Package, Settings
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -13,7 +13,7 @@ export default function Navbar() {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, isAuthenticated, isAdmin, isPosStaff, isSuperAdmin, hasPermission, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, isSuperAdmin, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const dropdownRef = useRef(null);
 
@@ -123,7 +123,7 @@ export default function Navbar() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gold/30 hover:border-gold/60 text-xs font-bold text-forest-green dark:text-gold transition-colors bg-white/50 dark:bg-dark-card/50 cursor-pointer"
                 >
                   <User className="w-3.5 h-3.5 text-gold" />
-                  <span className="max-w-[100px] truncate">{user?.name || (isAdmin ? 'Admin' : isPosStaff ? 'POS Staff' : 'My Account')}</span>
+                  <span className="max-w-[100px] truncate">{user?.name || (isAdmin ? 'Admin' : 'My Account')}</span>
                   <ChevronDown className="w-3 h-3 opacity-60" />
                 </button>
 
@@ -132,7 +132,7 @@ export default function Navbar() {
                     {/* User Header */}
                     <div className="px-4 py-2.5 border-b border-gray-100 dark:border-dark-border text-xs">
                       <div className="font-bold text-gray-800 dark:text-gray-200 truncate">
-                        {user?.name || (isAdmin ? 'Administrator' : isPosStaff ? 'POS Staff' : 'Customer')}
+                        {user?.name || (isAdmin ? 'Administrator' : 'Customer')}
                       </div>
                       <div className="text-[11px] text-gray-400 truncate">{user?.email || (user?.mobile ? `+91 ${user.mobile}` : '')}</div>
                       {isAdmin && (
@@ -141,16 +141,10 @@ export default function Navbar() {
                           <span>{isSuperAdmin ? 'Super Administrator' : 'Administrator'}</span>
                         </div>
                       )}
-                      {isPosStaff && (
-                        <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-forest-green/10 text-forest-green dark:text-gold text-[10px] font-bold">
-                          <ShoppingBag className="w-2.5 h-2.5" />
-                          <span>POS Counter Staff</span>
-                        </div>
-                      )}
                     </div>
 
                     {/* Customer Account: My Account & Orders */}
-                    {!isAdmin && !isPosStaff && (
+                    {!isAdmin && (
                       <Link
                         to="/account"
                         onClick={() => setUserDropdownOpen(false)}
@@ -161,7 +155,7 @@ export default function Navbar() {
                       </Link>
                     )}
 
-                    {/* Admin Account: Admin Dashboard & Quick Navigation */}
+                    {/* Admin Account: Admin Dashboard & Settings */}
                     {isAdmin && (
                       <div className="py-1">
                         <Link
@@ -173,51 +167,15 @@ export default function Navbar() {
                           <span>Admin Dashboard</span>
                         </Link>
 
-                        {(isSuperAdmin || hasPermission('reports')) && (
-                          <Link
-                            to="/admin?panel=reports"
-                            onClick={() => setUserDropdownOpen(false)}
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span>Business Reports</span>
-                          </Link>
-                        )}
-
-                        {(isSuperAdmin || hasPermission('products')) && (
-                          <Link
-                            to="/admin?panel=products"
-                            onClick={() => setUserDropdownOpen(false)}
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
-                          >
-                            <Package className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span>Product Management</span>
-                          </Link>
-                        )}
-
-                        {(isSuperAdmin || hasPermission('feedback')) && (
-                          <Link
-                            to="/admin?panel=feedback"
-                            onClick={() => setUserDropdownOpen(false)}
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-gold shrink-0" />
-                            <span>Feedback Management</span>
-                          </Link>
-                        )}
+                        <Link
+                          to="/admin?panel=settings"
+                          onClick={() => setUserDropdownOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold transition-colors"
+                        >
+                          <Settings className="w-3.5 h-3.5 text-gold shrink-0" />
+                          <span>Settings</span>
+                        </Link>
                       </div>
-                    )}
-
-                    {/* POS Staff Account: POS Dashboard */}
-                    {isPosStaff && (
-                      <Link
-                        to="/pos"
-                        onClick={() => setUserDropdownOpen(false)}
-                        className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-bold text-forest-green dark:text-gold hover:bg-gold/15 transition-colors"
-                      >
-                        <ShoppingBag className="w-3.5 h-3.5 text-gold shrink-0" />
-                        <span>POS Dashboard</span>
-                      </Link>
                     )}
 
                     <div className="pt-1 mt-1 border-t border-gray-100 dark:border-dark-border">
@@ -308,15 +266,21 @@ export default function Navbar() {
                 {/* User Info Header on Mobile */}
                 <div className="px-3 py-2 bg-gold/10 rounded-xl text-xs">
                   <div className="font-bold text-gray-900 dark:text-white truncate">
-                    {user?.name || (isAdmin ? 'Administrator' : isPosStaff ? 'POS Staff' : 'Customer')}
+                    {user?.name || (isAdmin ? 'Administrator' : 'Customer')}
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                     {user?.email || (user?.mobile ? `+91 ${user.mobile}` : '')}
                   </div>
+                  {isAdmin && (
+                    <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-forest-green/10 text-forest-green dark:text-gold text-[10px] font-bold">
+                      <Shield className="w-2.5 h-2.5" />
+                      <span>{isSuperAdmin ? 'Super Administrator' : 'Administrator'}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Customer Account: My Account & Orders */}
-                {!isAdmin && !isPosStaff && (
+                {!isAdmin && (
                   <Link
                     to="/account"
                     onClick={() => setMobileMenuOpen(false)}
@@ -339,51 +303,15 @@ export default function Navbar() {
                       <span>Admin Dashboard</span>
                     </Link>
 
-                    {(isSuperAdmin || hasPermission('reports')) && (
-                      <Link
-                        to="/admin?panel=reports"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
-                      >
-                        <FileText className="w-4 h-4 text-gold shrink-0" />
-                        <span>Business Reports</span>
-                      </Link>
-                    )}
-
-                    {(isSuperAdmin || hasPermission('products')) && (
-                      <Link
-                        to="/admin?panel=products"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
-                      >
-                        <Package className="w-4 h-4 text-gold shrink-0" />
-                        <span>Product Management</span>
-                      </Link>
-                    )}
-
-                    {(isSuperAdmin || hasPermission('feedback')) && (
-                      <Link
-                        to="/admin?panel=feedback"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
-                      >
-                        <MessageSquare className="w-4 h-4 text-gold shrink-0" />
-                        <span>Feedback Management</span>
-                      </Link>
-                    )}
+                    <Link
+                      to="/admin?panel=settings"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gold/10 hover:text-forest-green dark:hover:text-gold rounded-xl transition-colors"
+                    >
+                      <Settings className="w-4 h-4 text-gold shrink-0" />
+                      <span>Settings</span>
+                    </Link>
                   </div>
-                )}
-
-                {/* POS Staff Account: POS Dashboard */}
-                {isPosStaff && (
-                  <Link
-                    to="/pos"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-sm font-bold text-forest-green dark:text-gold hover:bg-gold/10 rounded-xl transition-colors"
-                  >
-                    <ShoppingBag className="w-4 h-4 text-gold shrink-0" />
-                    <span>POS Dashboard</span>
-                  </Link>
                 )}
 
                 <button

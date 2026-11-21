@@ -61,7 +61,7 @@ exports.createSale = async (req, res) => {
 
     // Staff identity ALWAYS comes from authenticated session token (prevents spoofing)
     const staffUserId = req.user._id ? req.user._id.toString() : (req.user.id || 'pos_user');
-    const staffName = req.user.name || 'POS Staff';
+    const staffName = req.user.name || 'Administrator';
 
     const newSale = new Sale({
       id: saleId,
@@ -137,15 +137,7 @@ exports.getSales = async (req, res) => {
     const { area, salesperson, staffId, payment, product, startDate, endDate, search } = req.query;
     let query = {};
 
-    // POS Staff can ONLY view their own sales records
-    if (req.user.role === 'pos_staff') {
-      const myId = req.user._id ? req.user._id.toString() : req.user.id;
-      query.$or = [
-        { staffUserId: myId },
-        { salesperson: req.user.name },
-        { staffName: req.user.name }
-      ];
-    } else if (staffId && staffId !== 'all') {
+    if (staffId && staffId !== 'all') {
       query.$or = [
         { staffUserId: staffId },
         { salesperson: staffId },
@@ -205,11 +197,7 @@ exports.getPosReports = async (req, res) => {
     const { staffId, period, startDate, endDate, payment, area } = req.query;
     let query = {};
 
-    // POS Staff can ONLY view their own reports
-    if (req.user.role === 'pos_staff') {
-      const myId = req.user._id ? req.user._id.toString() : req.user.id;
-      query.$or = [{ staffUserId: myId }, { salesperson: req.user.name }, { staffName: req.user.name }];
-    } else if (staffId && staffId !== 'all') {
+    if (staffId && staffId !== 'all') {
       query.$or = [{ staffUserId: staffId }, { salesperson: staffId }, { staffName: staffId }];
     }
 
@@ -395,10 +383,7 @@ exports.exportSalesReport = async (req, res) => {
     const { staffId, period, startDate, endDate, payment } = req.query;
     let query = {};
 
-    if (req.user.role === 'pos_staff') {
-      const myId = req.user._id ? req.user._id.toString() : req.user.id;
-      query.$or = [{ staffUserId: myId }, { salesperson: req.user.name }];
-    } else if (staffId && staffId !== 'all') {
+    if (staffId && staffId !== 'all') {
       query.$or = [{ staffUserId: staffId }, { salesperson: staffId }];
     }
 

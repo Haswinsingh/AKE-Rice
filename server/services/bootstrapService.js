@@ -12,7 +12,6 @@ const SUPER_ADMIN_PERMISSIONS = {
   feedback: true,
   admin_management: true,
   settings: true,
-  pos_staff_management: true,
   pos_reports: true,
   pos_reports_all_staff: true
 };

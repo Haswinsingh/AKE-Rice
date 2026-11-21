@@ -144,7 +144,7 @@ export function AuthProvider({ children }) {
   };
 
   const isAdmin = user?.role === 'admin';
-  const isPosStaff = user?.role === 'pos_staff';
+  const isPosStaff = false;
   const isSuperAdmin = isAdmin && (
     user?.isSuperAdmin === true ||
     (user?.email && user.email.toLowerCase().trim() === 'akerice1527@gmail.com')
@@ -153,9 +153,6 @@ export function AuthProvider({ children }) {
   const hasPermission = (permKey) => {
     if (!user) return false;
     if (isSuperAdmin) return true;
-    if (isPosStaff) {
-      return permKey === 'sales_pos' && user.status !== 'Disabled' && user.permissions?.sales_pos !== false;
-    }
     if (user.role !== 'admin') return false;
     if (!user.permissions) return false;
     if (permKey === 'sales_pos') return !!user.permissions.sales_pos;

@@ -58,11 +58,8 @@ const userSchema = new mongoose.Schema({
       feedback: true,
       admin_management: false,
       settings: false,
-      pos_staff_management: false,
       pos_reports: false,
-      pos_reports_all_staff: false,
-      view_own_sales: true,
-      view_customer_info: false
+      pos_reports_all_staff: false
     })
   },
   isActive: { type: Boolean, default: true }

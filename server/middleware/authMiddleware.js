@@ -250,18 +250,6 @@ const requirePosAccess = (req, res, next) => {
     return next();
   }
 
-  // POS Staff role
-  if (req.user.role === 'pos_staff') {
-    if (req.user.permissions?.sales_pos === false) {
-      return res.status(403).json({
-        success: false,
-        code: 'PERMISSION_DENIED',
-        message: 'Your POS access has been revoked. Please contact the administrator.'
-      });
-    }
-    return next();
-  }
-
   // Admin role with sales_pos permission
   if (req.user.role === 'admin') {
     if (req.user.permissions?.sales_pos) {
@@ -279,13 +267,13 @@ const requirePosAccess = (req, res, next) => {
   return res.status(403).json({
     success: false,
     code: 'ACCESS_DENIED',
-    message: 'Access denied. POS billing access requires an authorized POS staff or administrator account.'
+    message: 'Access denied. POS billing access requires an authorized administrator account.'
   });
 };
 
 /**
  * POS Staff Management Middleware:
- * Super Admin or Admin with 'pos_staff_management' or 'admin_management'.
+ * Super Admin or Admin with 'admin_management'.
  */
 const requirePosStaffManagement = (req, res, next) => {
   if (!req.user) {
@@ -299,21 +287,21 @@ const requirePosStaffManagement = (req, res, next) => {
   }
   if (req.user.role === 'admin') {
     const perms = req.user.permissions || {};
-    if (perms.pos_staff_management || perms.admin_management) {
+    if (perms.admin_management) {
       return next();
     }
   }
   return res.status(403).json({
     success: false,
     code: 'PERMISSION_DENIED',
-    permission: 'pos_staff_management',
-    message: 'Forbidden. You do not have permission to manage POS staff.'
+    permission: 'admin_management',
+    message: 'Forbidden. Administrator management privileges required.'
   });
 };
 
 /**
  * POS Reports Middleware:
- * Allows Super Admin, Admin with 'pos_reports' or 'pos_reports_all_staff', or POS staff viewing their own reports.
+ * Allows Super Admin or Admin with 'pos_reports', 'pos_reports_all_staff', or 'reports'.
  */
 const requirePosReports = (req, res, next) => {
   if (!req.user) {
@@ -330,27 +318,6 @@ const requirePosReports = (req, res, next) => {
     if (perms.pos_reports || perms.pos_reports_all_staff || perms.reports) {
       return next();
     }
-  }
-  if (req.user.role === 'pos_staff') {
-    // POS staff cannot view comparison or bulk export
-    const reqUrl = req.originalUrl || req.url || '';
-    if (reqUrl.includes('comparison') || reqUrl.includes('export')) {
-      return res.status(403).json({
-        success: false,
-        code: 'PERMISSION_DENIED',
-        message: 'Forbidden. POS staff cannot view team comparison or multi-staff export.'
-      });
-    }
-    // POS staff can only view their own reports
-    const targetStaffId = req.params.staffId || req.query.staffId;
-    if (!targetStaffId || targetStaffId === req.user._id?.toString() || targetStaffId === req.user.id) {
-      return next();
-    }
-    return res.status(403).json({
-      success: false,
-      code: 'PERMISSION_DENIED',
-      message: 'Forbidden. POS staff cannot view other staff reports.'
-    });
   }
   return res.status(403).json({
     success: false,

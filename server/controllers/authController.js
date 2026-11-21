@@ -17,7 +17,6 @@ const DEFAULT_ADMIN_PERMISSIONS = {
   feedback: true,
   admin_management: false,
   settings: false,
-  pos_staff_management: false,
   pos_reports: false,
   pos_reports_all_staff: false
 };
@@ -34,7 +33,6 @@ const SUPER_ADMIN_PERMISSIONS = {
   feedback: true,
   admin_management: true,
   settings: true,
-  pos_staff_management: true,
   pos_reports: true,
   pos_reports_all_staff: true
 };
@@ -150,9 +148,7 @@ exports.sendOtp = async (req, res) => {
     if (user && user.status === 'Disabled') {
       return res.status(403).json({
         success: false,
-        message: user.role === 'pos_staff'
-          ? 'Your POS staff account has been deactivated or disabled. Please contact the administrator.'
-          : user.role === 'admin'
+        message: user.role === 'admin'
           ? 'This administrator account has been disabled. Please contact the primary administrator.'
           : 'This account has been disabled. Please contact customer support.'
       });
@@ -463,7 +459,7 @@ exports.verifyOtp = async (req, res) => {
         isSuperAdmin: isSuper,
         permissions: user.role === 'admin' 
           ? (isSuper ? { ...SUPER_ADMIN_PERMISSIONS } : { ...DEFAULT_ADMIN_PERMISSIONS, ...(user.permissions || {}) }) 
-          : (user.role === 'pos_staff' ? (user.permissions || { sales_pos: true }) : undefined),
+          : undefined,
         status: user.status || 'Active',
         emailVerified: true,
         lastLogin: user.lastLogin
@@ -647,57 +643,6 @@ exports.passwordLogin = async (req, res) => {
       });
     }
 
-    // POS Staff Login
-    if (user && user.role === 'pos_staff') {
-      if (user.status === 'Disabled' || user.isActive === false) {
-        return res.status(403).json({
-          success: false,
-          code: 'ACCOUNT_DISABLED',
-          message: 'Your POS staff account has been deactivated. Please contact the administrator.'
-        });
-      }
-
-      if (user.permissions?.sales_pos === false) {
-        return res.status(403).json({
-          success: false,
-          code: 'PERMISSION_DENIED',
-          message: 'Your POS access has been revoked. Please contact the administrator.'
-        });
-      }
-
-      let isMatch = false;
-      if (user.password) {
-        if (user.password === password) {
-          isMatch = true;
-        } else {
-          isMatch = await bcrypt.compare(password, user.password).catch(() => false);
-        }
-      }
-
-      if (isMatch) {
-        user.lastLogin = new Date();
-        await user.save();
-        const token = signToken(user);
-        return res.status(200).json({
-          success: true,
-          message: 'POS staff authentication successful.',
-          token,
-          role: 'pos_staff',
-          user: {
-            id: user._id || user.id,
-            name: user.name,
-            username: user.username,
-            staffId: user.staffId,
-            mobile: user.mobile,
-            email: user.email,
-            role: 'pos_staff',
-            status: user.status || 'Active',
-            permissions: user.permissions || { sales_pos: true }
-          }
-        });
-      }
-    }
-
     if (user && user.role === 'admin') {
       let isMatch = false;
       if (user.password) {
@@ -759,9 +704,6 @@ exports.getMe = async (req, res) => {
       userObj.permissions = isSuper 
         ? { ...SUPER_ADMIN_PERMISSIONS } 
         : { ...DEFAULT_ADMIN_PERMISSIONS, ...(user.permissions || {}) };
-    } else if (user.role === 'pos_staff') {
-      userObj.isSuperAdmin = false;
-      userObj.permissions = user.permissions || { sales_pos: true };
     }
     return res.status(200).json({
       success: true,

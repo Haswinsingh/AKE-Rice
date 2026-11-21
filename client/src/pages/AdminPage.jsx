@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { 
-  BarChart3, ShoppingBag, FileText, Users, UserCheck, FileSpreadsheet, TrendingUp, Award,
+  BarChart3, ShoppingBag, FileText, Users, FileSpreadsheet, TrendingUp, Award,
   MessageSquare, DollarSign, CheckCircle2, XCircle, 
   Clock, Shield, ShieldAlert, Eye, ZoomIn, Copy, Download, 
   Printer, Plus, Trash2, Filter, RefreshCw, Send, Search, ExternalLink, RotateCw,
@@ -44,10 +44,8 @@ const PERMISSION_LIST = [
   { key: 'analytics', label: 'Analytics Overview', desc: 'View store revenue, sales breakdown, conversion rates, and dashboard graphs.' },
   { key: 'products', label: 'Product Management', desc: 'Manage product catalog, packaging sizes, rates, availability, warehouse stock, and movement history.' },
   { key: 'sales_pos', label: 'Sales Entry / POS', desc: 'Access offline retail billing (1 KG @ ₹195/kg) and wholesale bulk bag sales (25 KG @ ₹185/kg) with automatic stock deduction.' },
-  { key: 'pos_staff_management', label: 'Staff Management', desc: 'Add staff accounts, manage credentials, assign POS permissions, and monitor staff performance.' },
-  { key: 'pos_reports', label: 'POS Reports & Metrics', desc: 'View individual POS staff sales reports, date-filtered metrics, and transaction ledgers.' },
-  { key: 'pos_reports_all_staff', label: 'All Staff Comparison', desc: 'Access comprehensive multi-staff performance comparison, rankings, and CSV export.' },
   { key: 'reports', label: 'Business Reports', desc: 'Generate date-filtered sales reports, area revenue statements, and export Excel/CSV reports.' },
+  { key: 'pos_reports', label: 'Reports & Comparison', desc: 'View sales reports, date-filtered metrics, transaction ledgers, and billing comparison.' },
   { key: 'orders', label: 'Store & WhatsApp Orders', desc: 'Process incoming online store and WhatsApp orders, verify payment screenshots, and update delivery statuses.' },
   { key: 'feedback', label: 'Feedback Management', desc: 'Moderate customer reviews, approve testimonials for public display, and write management replies.' },
   { key: 'admin_management', label: 'Admin Management', desc: 'View administrator roster, promote customer accounts to admin, and review access logs.' },
@@ -58,14 +56,12 @@ const ALL_NAV_PANELS = [
   { id: 'analytics', name: 'Analytics Overview', icon: BarChart3, permission: 'analytics' },
   { id: 'products', name: 'Product Management', icon: Package, permission: 'products' },
   { id: 'sales-entry', name: 'Sales Entry / POS', icon: DollarSign, permission: 'sales_pos' },
-  { id: 'pos-staff', name: 'Staff Management', icon: UserCheck, permission: 'pos_staff_management' },
-  { id: 'pos-reports', name: 'POS Reports & Comparison', icon: FileSpreadsheet, permission: 'pos_reports' },
   { id: 'reports', name: 'Business Reports', icon: FileText, permission: 'reports' },
+  { id: 'pos-reports', name: 'Reports & Comparison', icon: FileSpreadsheet, permission: 'pos_reports' },
   { id: 'drive-backup', name: 'Google Drive Backup', icon: Cloud, permission: 'reports' },
   { id: 'orders', name: 'Store & WhatsApp Orders', icon: ShoppingBag, permission: 'orders' },
   { id: 'feedback', name: 'Feedback Management', icon: MessageSquare, permission: 'feedback' },
-  { id: 'admin-users', name: 'Admin Management', icon: Shield, permission: 'admin_management' },
-  { id: 'settings', name: 'Settings', icon: Settings, permission: 'settings' }
+  { id: 'admin-users', name: 'Admin Management', icon: Shield, permission: 'admin_management' }
 ];
 
 export default function AdminPage({ initialPanel }) {
@@ -76,8 +72,15 @@ export default function AdminPage({ initialPanel }) {
   const { showToast } = useToast();
 
   const rawPanel = initialPanel || searchParams.get('panel') || searchParams.get('tab');
-  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : rawPanel);
-  const [activePanel, setActivePanel] = useState(normalizedPanel || 'analytics');
+  const normalizedPanel = rawPanel === 'inventory' ? 'products' : (rawPanel === 'customers' ? 'orders' : (rawPanel === 'pos-staff' ? 'analytics' : rawPanel));
+  const [activePanel, setActivePanel] = useState(normalizedPanel === 'sales-entry' ? 'analytics' : (normalizedPanel || 'analytics'));
+
+  // Automatically navigate to dedicated POS page if sales-entry was requested
+  useEffect(() => {
+    if (normalizedPanel === 'sales-entry') {
+      navigate('/pos');
+    }
+  }, [normalizedPanel, navigate]);
   const [productSubTab, setProductSubTab] = useState('catalog'); // 'catalog' | 'stock_history'
   const [lightboxImg, setLightboxImg] = useState(null);
 
@@ -307,11 +310,9 @@ export default function AdminPage({ initialPanel }) {
         loadInventory();
       }
       if (activePanel === 'sales-entry') loadRecentSales();
-      if (activePanel === 'pos-staff') loadPosStaff();
       if (activePanel === 'pos-reports') {
         loadPosReports();
         loadComparison();
-        loadPosStaff();
       }
       if (activePanel === 'reports') loadReports();
       if (activePanel === 'drive-backup') loadDriveStatus();
@@ -337,13 +338,6 @@ export default function AdminPage({ initialPanel }) {
       loadComparison();
     }
   }, [comparisonPeriod, comparisonSortBy, activeReportTab]);
-
-  // Reactive reload on Staff status filter changes
-  useEffect(() => {
-    if (isAdmin && activePanel === 'pos-staff') {
-      loadPosStaff();
-    }
-  }, [staffStatusFilter]);
 
   const loadAnalytics = () => {
     setLoadingAnalytics(true);
@@ -1451,7 +1445,6 @@ export default function AdminPage({ initialPanel }) {
                 loadInventory();
               }
               if (activePanel === 'sales-entry') loadRecentSales();
-              if (activePanel === 'pos-staff') loadPosStaff();
               if (activePanel === 'pos-reports') {
                 loadPosReports();
                 loadComparison();
@@ -1480,7 +1473,7 @@ export default function AdminPage({ initialPanel }) {
       {/* ========================================================================= */}
       {/* RESPONSIVE DASHBOARD NAVIGATION GRID */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
         {navPanels.map((p) => {
           const Icon = p.icon;
           const isActive = activePanel === p.id;
@@ -1488,7 +1481,13 @@ export default function AdminPage({ initialPanel }) {
             <button
               key={p.id}
               type="button"
-              onClick={() => setActivePanel(p.id)}
+              onClick={() => {
+                if (p.id === 'sales-entry') {
+                  navigate('/pos');
+                } else {
+                  setActivePanel(p.id);
+                }
+              }}
               className={`group relative flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl text-left transition-all duration-200 cursor-pointer w-full h-full min-h-[66px] sm:min-h-[72px] ${
                 isActive
                   ? 'bg-forest-green text-white border-2 border-gold shadow-lg ring-2 ring-gold/20 scale-[1.01]'
@@ -1731,458 +1730,30 @@ export default function AdminPage({ initialPanel }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 2. SALES ENTRY / POS PANEL */}
+      {/* 2. SALES ENTRY / POS DEDICATED WORKSPACE CARD */}
       {/* ========================================================================= */}
       {activePanel === 'sales-entry' && (
-        <div className="space-y-10 animate-in fade-in">
-          
-          <div className="bg-white dark:bg-dark-card p-6 sm:p-10 rounded-3xl border-2 border-gold/40 shadow-xl space-y-6">
-            <h3 className="brand-font text-2xl font-bold text-forest-green dark:text-gold-light pb-4 border-b border-gray-100 dark:border-dark-border">
+        <div className="bg-white dark:bg-dark-card p-8 sm:p-12 rounded-3xl border-2 border-gold/40 shadow-xl text-center space-y-6 animate-in fade-in">
+          <div className="w-16 h-16 rounded-2xl bg-forest-green/10 text-forest-green dark:text-gold flex items-center justify-center mx-auto border border-gold/30">
+            <DollarSign className="w-8 h-8" />
+          </div>
+          <div className="max-w-lg mx-auto space-y-2">
+            <h3 className="brand-font text-2xl sm:text-3xl font-bold text-forest-green dark:text-gold-light">
               Offline Sales Entry & POS Billing
             </h3>
-
-            {/* Variety Selector */}
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => handlePosProductChange('1 KG Rice')}
-                className={`flex-1 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider border transition-all ${
-                  posProduct === '1 KG Rice'
-                    ? 'bg-forest-green text-gold-light border-gold shadow'
-                    : 'bg-gray-50 dark:bg-dark-bg text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                1 KG Rice Sale (₹195/KG)
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePosProductChange('25 KG Rice')}
-                className={`flex-1 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider border transition-all ${
-                  posProduct === '25 KG Rice'
-                    ? 'bg-forest-green text-gold-light border-gold shadow'
-                    : 'bg-gray-50 dark:bg-dark-bg text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                25 KG Bulk Sale (₹185/KG = ₹4,625/Bag)
-              </button>
-            </div>
-
-            <form onSubmit={handlePosSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Customer / Shop Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Annapoorna Biryani House"
-                    value={posShop}
-                    onChange={(e) => setPosShop(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Customer Mobile (Optional)
-                  </label>
-                  <input
-                    type="tel"
-                    placeholder="e.g. 9876543210"
-                    value={posMobile}
-                    onChange={(e) => setPosMobile(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Area / Location *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Tiruchirappalli"
-                    value={posArea}
-                    onChange={(e) => setPosArea(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Transaction Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={posDate}
-                    onChange={(e) => setPosDate(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Quantity ({posProduct === '25 KG Rice' ? 'Bags' : 'Pouches'})
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    required
-                    value={posQty}
-                    onChange={(e) => setPosQty(parseInt(e.target.value, 10) || 1)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm font-bold focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Rate per KG (₹)
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    value={posRate}
-                    onChange={(e) => setPosRate(parseFloat(e.target.value) || 0)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm font-bold focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Payment Method
-                  </label>
-                  <select
-                    value={posPayment}
-                    onChange={(e) => setPosPayment(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  >
-                    <option value="Cash">Cash</option>
-                    <option value="Online Payment">Online UPI / GPay</option>
-                    <option value="Cheque">Bank Cheque</option>
-                  </select>
-                </div>
-
-                <div>
-                  <span className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Calculated Total</span>
-                  <strong className="block text-2xl font-black text-forest-green dark:text-gold">
-                    ₹{posTotal.toLocaleString('en-IN')}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="submit"
-                  className="px-8 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-md hover:shadow-lg transition-all"
-                >
-                  Save POS Sales Entry
-                </button>
-              </div>
-            </form>
+            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">
+              The POS counter billing interface now operates as a dedicated internal workspace with full billing controls, live stock deductions, and receipt generation.
+            </p>
           </div>
-
-          {/* Recent Sales Log */}
-          <div className="bg-white dark:bg-dark-card p-6 sm:p-8 rounded-3xl border border-gold/30 shadow-md space-y-4">
-            <h4 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-              Recent Offline Sales Entries ({recentSales.length})
-            </h4>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
-                  <tr>
-                    <th className="p-3">ID</th>
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Shop / Customer</th>
-                    <th className="p-3">Area</th>
-                    <th className="p-3">Product</th>
-                    <th className="p-3">Qty</th>
-                    <th className="p-3">Total</th>
-                    <th className="p-3">Payment</th>
-                    <th className="p-3">Salesperson</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {recentSales.map(s => (
-                    <tr key={s.id} className="hover:bg-gold/5">
-                      <td className="p-3 font-mono font-bold text-forest-green dark:text-gold">{s.id}</td>
-                      <td className="p-3">{s.date}</td>
-                      <td className="p-3 font-semibold">{s.shop}</td>
-                      <td className="p-3">{s.area}</td>
-                      <td className="p-3">{s.product}</td>
-                      <td className="p-3">{s.qty}</td>
-                      <td className="p-3 font-bold text-forest-green dark:text-gold">₹{s.total?.toLocaleString('en-IN')}</td>
-                      <td className="p-3">{s.payment}</td>
-                      <td className="p-3">{s.salesperson}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* STAFF MANAGEMENT PANEL */}
-      {/* ========================================================================= */}
-      {activePanel === 'pos-staff' && (
-        <div className="space-y-8 animate-in fade-in">
-          
-          {/* Header Card */}
-          <div className="bg-white dark:bg-dark-card p-6 sm:p-8 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-1 text-center sm:text-left">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-forest-green/10 text-forest-green dark:text-gold text-xs font-bold uppercase tracking-wider">
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Staff & Counter Control</span>
-              </div>
-              <h3 className="brand-font text-2xl font-bold text-forest-green dark:text-gold-light">
-                Staff Management
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Authorize retail and wholesale billing staff, control access permissions, and track individual sales performance.
-              </p>
-            </div>
-
+          <div className="pt-2">
             <button
               type="button"
-              onClick={() => setCreateStaffModal(true)}
-              className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-lg transition-all cursor-pointer"
+              onClick={() => navigate('/pos')}
+              className="px-8 py-4 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light font-bold text-xs uppercase tracking-wider shadow-xl transition-all hover:scale-105 cursor-pointer inline-flex items-center gap-2"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add Staff</span>
+              <span>Open Dedicated POS Terminal →</span>
             </button>
           </div>
-
-          {/* Search, Filter & Stats Bar */}
-          <div className="bg-white dark:bg-dark-card p-6 rounded-3xl border border-gold/30 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto flex-1">
-              <div className="relative w-full sm:w-80">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search staff by name, mobile, ID..."
-                  value={posStaffSearch}
-                  onChange={(e) => setPosStaffSearch(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') loadPosStaff(); }}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-gray-50 dark:bg-dark-bg text-xs focus:outline-none focus:border-gold"
-                />
-              </div>
-
-              {/* Status Filter Dropdown */}
-              <select
-                value={staffStatusFilter}
-                onChange={(e) => setStaffStatusFilter(e.target.value)}
-                className="w-full sm:w-auto px-3 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-gray-50 dark:bg-dark-bg text-xs font-semibold focus:outline-none focus:border-gold"
-              >
-                <option value="all">All Statuses ({posStaffList.length})</option>
-                <option value="Active">Active Only</option>
-                <option value="Disabled">Disabled Only</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-              <button
-                type="button"
-                onClick={() => loadPosStaff()}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-bg transition-colors cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingPosStaff ? 'animate-spin' : ''}`} />
-                <span>Refresh Staff</span>
-              </button>
-              <span className="text-xs font-semibold text-gray-500">
-                Total Staff: <strong className="text-forest-green dark:text-gold">{posStaffList.length}</strong>
-              </span>
-            </div>
-          </div>
-
-          {/* Staff Roster Table */}
-          <div className="bg-white dark:bg-dark-card rounded-3xl border border-gold/30 shadow-md overflow-hidden">
-            <div className="p-6 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
-              <h4 className="font-bold text-base text-forest-green dark:text-gold-light">
-                Authorized Staff Accounts
-              </h4>
-              <span className="text-xs text-gray-400">
-                Staff members authenticate and bill offline sales at /pos
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-forest-green/10 dark:bg-dark-border text-forest-green dark:text-gold font-bold">
-                  <tr>
-                    <th className="p-4">Staff Member</th>
-                    <th className="p-4">Staff ID</th>
-                    <th className="p-4">Email</th>
-                    <th className="p-4">Mobile</th>
-                    <th className="p-4 text-center">Status</th>
-                    <th className="p-4 text-right">Transactions</th>
-                    <th className="p-4 text-right">Quantity Sold</th>
-                    <th className="p-4 text-right">Total Sales</th>
-                    <th className="p-4">Created Date</th>
-                    <th className="p-4 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-dark-border">
-                  {loadingPosStaff ? (
-                    <tr>
-                      <td colSpan={10} className="p-12 text-center text-gray-400">
-                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-gold" />
-                        Loading staff roster...
-                      </td>
-                    </tr>
-                  ) : posStaffList.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="p-12 text-center text-gray-400">
-                        No staff members found matching filter. Click "Add Staff" to create an account.
-                      </td>
-                    </tr>
-                  ) : (
-                    posStaffList.map(staff => {
-                      const isActive = staff.status === 'Active';
-                      const hasPosPermission = staff.permissions?.sales_pos !== false;
-                      const isPermitted = isActive && hasPosPermission;
-                      const staffIdDisplay = staff.staffId || ('AKE-STF-' + (staff._id ? String(staff._id).slice(-3).toUpperCase() : '001'));
-                      const createdDateFormatted = staff.createdAt
-                        ? new Date(staff.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                        : '—';
-
-                      return (
-                        <tr key={staff._id || staff.id} className="hover:bg-gold/5 transition-colors">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-forest-green text-gold flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
-                                {staff.name?.charAt(0)?.toUpperCase() || 'S'}
-                              </div>
-                              <div>
-                                <strong className="font-bold text-sm text-gray-900 dark:text-white block">
-                                  {staff.name}
-                                </strong>
-                                <span className="text-[11px] font-mono text-gray-400">
-                                  @{staff.username || 'staff_' + (staff.mobile || '').slice(-4)}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2.5 py-1 rounded-lg bg-forest-green/10 text-forest-green dark:text-gold font-mono font-bold text-xs inline-block">
-                              {staffIdDisplay}
-                            </span>
-                          </td>
-                          <td className="p-4 text-gray-600 dark:text-gray-300">
-                            {staff.email || <span className="text-gray-400 italic">No email</span>}
-                          </td>
-                          <td className="p-4 font-mono font-semibold text-gray-800 dark:text-gray-200">
-                            +91 {staff.mobile || '—'}
-                          </td>
-                          <td className="p-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleStaffStatus(staff)}
-                              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-all ${
-                                isPermitted
-                                  ? 'bg-emerald/10 text-emerald hover:bg-emerald/20 border border-emerald/30'
-                                  : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                              }`}
-                              title="Click to toggle active status and POS access"
-                            >
-                              {isPermitted ? (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  <span>Active</span>
-                                </>
-                              ) : (
-                                <>
-                                  <XCircle className="w-3 h-3" />
-                                  <span>Disabled</span>
-                                </>
-                              )}
-                            </button>
-                          </td>
-                          <td className="p-4 text-right font-mono font-bold text-gray-700 dark:text-gray-300">
-                            {staff.transactionCount || 0}
-                          </td>
-                          <td className="p-4 text-right font-mono font-bold text-gray-700 dark:text-gray-300">
-                            {(staff.totalQuantityKg || 0).toLocaleString('en-IN')} KG
-                          </td>
-                          <td className="p-4 text-right font-mono font-bold text-forest-green dark:text-gold text-sm">
-                            ₹{(staff.totalSales || 0).toLocaleString('en-IN')}
-                          </td>
-                          <td className="p-4 font-mono text-gray-500 whitespace-nowrap text-[11px]">
-                            {createdDateFormatted}
-                          </td>
-                          <td className="p-4">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedStaffDetail(staff)}
-                                className="p-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 hover:bg-sky-100 transition-colors cursor-pointer"
-                                title="View staff details & permissions"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedReportStaff(staff._id);
-                                  setActiveReportTab('reports');
-                                  setActivePanel('pos-reports');
-                                }}
-                                className="p-1.5 rounded-lg bg-forest-green/10 text-forest-green dark:text-gold hover:bg-forest-green hover:text-white transition-colors cursor-pointer"
-                                title="View individual sales report"
-                              >
-                                <TrendingUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditStaffModal({
-                                  ...staff,
-                                  staffId: staff.staffId || '',
-                                  sales_pos: staff.permissions?.sales_pos !== false,
-                                  view_own_sales: staff.permissions?.view_own_sales !== false,
-                                  view_customer_info: staff.permissions?.view_customer_info === true
-                                })}
-                                className="p-1.5 rounded-lg bg-gray-100 dark:bg-dark-border text-gray-600 dark:text-gray-300 hover:bg-gold/20 hover:text-forest-green transition-colors cursor-pointer"
-                                title="Edit staff profile"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setResetStaffPassModal(staff);
-                                  setResetStaffPassValue('');
-                                }}
-                                className="p-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
-                                title="Reset login credentials"
-                              >
-                                <Key className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setDeleteStaffConfirmModal(staff)}
-                                className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
-                                title="Revoke & deactivate account (preserves sales)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>
       )}
 
@@ -2232,7 +1803,7 @@ export default function AdminPage({ initialPanel }) {
               }`}
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Staff Sales Report & Ledger</span>
+              <span>POS Sales Report & Ledger</span>
             </button>
             <button
               type="button"
@@ -2247,7 +1818,7 @@ export default function AdminPage({ initialPanel }) {
               }`}
             >
               <Award className="w-4 h-4" />
-              <span>Staff Performance Comparison</span>
+              <span>Billing & Sales Comparison</span>
             </button>
           </div>
 
@@ -2279,20 +1850,20 @@ export default function AdminPage({ initialPanel }) {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                  {/* Staff Dropdown */}
+                  {/* Salesperson Dropdown */}
                   <div>
                     <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1">
-                      Filter by Staff Member
+                      Filter by Salesperson / Admin
                     </label>
                     <select
                       value={selectedReportStaff}
                       onChange={(e) => setSelectedReportStaff(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-dark-border bg-gray-50 dark:bg-dark-bg text-xs font-semibold focus:outline-none focus:border-gold"
                     >
-                      <option value="all">All POS Staff & Admins</option>
-                      {posStaffList.map(st => (
-                        <option key={st._id} value={st._id}>
-                          {st.name} ({st.mobile ? `+91 ${st.mobile}` : `@${st.username}`})
+                      <option value="all">All Administrators & Billing Users</option>
+                      {adminUsers.map(st => (
+                        <option key={st._id || st.id} value={st._id || st.id}>
+                          {st.name} ({st.email || (st.mobile ? `+91 ${st.mobile}` : 'Admin')})
                         </option>
                       ))}
                     </select>
@@ -5211,6 +4782,15 @@ export default function AdminPage({ initialPanel }) {
                 Operational parameters, business helplines, security rules, and communication configuration.
               </p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setActivePanel('analytics')}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-forest-green hover:bg-deep-green text-gold-light border border-gold/40 shadow-sm font-bold text-xs uppercase tracking-wider transition-all hover:scale-105 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-gold" />
+              <span>← Back to Dashboard</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -5850,7 +5430,7 @@ export default function AdminPage({ initialPanel }) {
                           ...prev,
                           permissions: {
                             analytics: true, inventory: true, products: true, sales_pos: true,
-                            pos_staff_management: true, pos_reports: true, pos_reports_all_staff: true,
+                            pos_reports: true, pos_reports_all_staff: true,
                             reports: true, orders: true, whatsapp_orders: true, customers: true,
                             feedback: true, admin_management: false, settings: true
                           }
@@ -5867,7 +5447,7 @@ export default function AdminPage({ initialPanel }) {
                           ...prev,
                           permissions: {
                             analytics: true, inventory: true, products: true, sales_pos: false,
-                            pos_staff_management: false, pos_reports: false, pos_reports_all_staff: false,
+                            pos_reports: false, pos_reports_all_staff: false,
                             reports: true, orders: true, whatsapp_orders: true, customers: true,
                             feedback: true, admin_management: false, settings: false
                           }
@@ -5884,7 +5464,7 @@ export default function AdminPage({ initialPanel }) {
                           ...prev,
                           permissions: {
                             analytics: false, inventory: false, products: false, sales_pos: false,
-                            pos_staff_management: false, pos_reports: false, pos_reports_all_staff: false,
+                            pos_reports: false, pos_reports_all_staff: false,
                             reports: false, orders: false, whatsapp_orders: false, customers: false,
                             feedback: false, admin_management: false, settings: false
                           }
@@ -6191,525 +5771,6 @@ export default function AdminPage({ initialPanel }) {
               >
                 <TrendingUp className="w-3.5 h-3.5" />
                 <span>View Full Sales Report</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 1. Add Staff Modal */}
-      {createStaffModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-dark-card rounded-3xl border-2 border-gold/40 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-dark-border">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-forest-green/10 text-forest-green dark:text-gold">
-                  <UserCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-                    Add Staff Member
-                  </h3>
-                  <p className="text-xs text-gray-500">Authorize new staff account with granular permissions.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCreateStaffModal(false)}
-                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-dark-border text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateStaff} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Anand Kumar"
-                    value={newStaffForm.name}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Staff ID (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Auto: e.g. AKE-STF-001"
-                    value={newStaffForm.staffId || ''}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, staffId: e.target.value.toUpperCase() })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  10-Digit Mobile Number * (Login Identifier)
-                </label>
-                <div className="flex rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg overflow-hidden focus-within:border-gold">
-                  <div className="px-3 py-2.5 bg-gray-50 dark:bg-dark-card border-r border-gray-200 dark:border-dark-border text-xs font-bold text-gray-600 dark:text-gray-300">
-                    +91
-                  </div>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    placeholder="e.g. 9876543210"
-                    value={newStaffForm.mobile}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, mobile: e.target.value.replace(/\D/g, '') })}
-                    className="w-full px-3 py-2.5 bg-transparent text-sm font-semibold tracking-wider focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Username (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. anand_pos"
-                    value={newStaffForm.username}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Email Address (Optional)
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="staff@akerice.com"
-                    value={newStaffForm.email}
-                    onChange={(e) => setNewStaffForm({ ...newStaffForm, email: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  Password / PIN * (Min 6 Characters)
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={newStaffForm.password}
-                  onChange={(e) => setNewStaffForm({ ...newStaffForm, password: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                />
-              </div>
-
-              {/* Granular Permissions Section */}
-              <div className="space-y-2 pt-1">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                  Assign Staff Permissions
-                </label>
-
-                <div className="space-y-2 text-xs">
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-forest-green/5 border border-forest-green/20 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newStaffForm.sales_pos}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, sales_pos: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-forest-green dark:text-gold block">
-                        POS / Counter Billing Access (sales_pos)
-                      </span>
-                      <span className="text-[10px] text-gray-500">Allows offline billing and receipt generation</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-forest-green/5 border border-forest-green/20 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newStaffForm.view_own_sales}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, view_own_sales: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-forest-green dark:text-gold block">
-                        View Own Sales History (view_own_sales)
-                      </span>
-                      <span className="text-[10px] text-gray-500">Allows staff to view their daily billed totals</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newStaffForm.view_customer_info}
-                      onChange={(e) => setNewStaffForm({ ...newStaffForm, view_customer_info: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-gray-700 dark:text-gray-300 block">
-                        View Customer Phone & Contact (view_customer_info)
-                      </span>
-                      <span className="text-[10px] text-gray-400">Restricted permission for customer contact privacy</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border text-[11px] text-gray-500 space-y-1">
-                <div className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                  <Shield className="w-3.5 h-3.5 text-gold" />
-                  <span>Strict Security & Access Control:</span>
-                </div>
-                <p>
-                  Staff log in directly at <strong className="font-mono text-forest-green dark:text-gold">/pos</strong>. They will never receive Admin privileges and are strictly blocked (403 Forbidden) from accessing the Admin Dashboard.
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCreateStaffModal(false)}
-                  className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createStaffSubmitting || !newStaffForm.name.trim() || newStaffForm.mobile.replace(/\D/g, '').length !== 10 || !newStaffForm.password}
-                  className="px-6 py-2.5 rounded-xl bg-forest-green hover:bg-deep-green text-gold-light text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 cursor-pointer"
-                >
-                  {createStaffSubmitting ? 'Creating...' : 'Create Staff Member'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Edit Staff Modal */}
-      {editStaffModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-dark-card rounded-3xl border-2 border-gold/40 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-dark-border">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-forest-green/10 text-forest-green dark:text-gold">
-                  <Edit2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-                    Edit Staff: {editStaffModal.name}
-                  </h3>
-                  <p className="text-xs text-gray-500">Update staff details and access configuration.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditStaffModal(null)}
-                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-dark-border text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateStaff} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editStaffModal.name}
-                    onChange={(e) => setEditStaffModal({ ...editStaffModal, name: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Staff ID
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. AKE-STF-001"
-                    value={editStaffModal.staffId || ''}
-                    onChange={(e) => setEditStaffModal({ ...editStaffModal, staffId: e.target.value.toUpperCase() })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  10-Digit Mobile Number *
-                </label>
-                <div className="flex rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg overflow-hidden focus-within:border-gold">
-                  <div className="px-3 py-2.5 bg-gray-50 dark:bg-dark-card border-r border-gray-200 dark:border-dark-border text-xs font-bold text-gray-600 dark:text-gray-300">
-                    +91
-                  </div>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    value={editStaffModal.mobile}
-                    onChange={(e) => setEditStaffModal({ ...editStaffModal, mobile: e.target.value.replace(/\D/g, '') })}
-                    className="w-full px-3 py-2.5 bg-transparent text-sm font-semibold tracking-wider focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    value={editStaffModal.username || ''}
-                    onChange={(e) => setEditStaffModal({ ...editStaffModal, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                    Account Status
-                  </label>
-                  <select
-                    value={editStaffModal.status || 'Active'}
-                    onChange={(e) => setEditStaffModal({ ...editStaffModal, status: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold font-semibold"
-                  >
-                    <option value="Active">Active (Permitted)</option>
-                    <option value="Disabled">Disabled (Suspended)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={editStaffModal.email || ''}
-                  onChange={(e) => setEditStaffModal({ ...editStaffModal, email: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                />
-              </div>
-
-              {/* Granular Permissions Checkboxes */}
-              <div className="space-y-2 pt-1">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
-                  Manage Permissions
-                </label>
-
-                <div className="space-y-2 text-xs">
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-forest-green/5 border border-forest-green/20 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editStaffModal.sales_pos !== false}
-                      onChange={(e) => setEditStaffModal({ ...editStaffModal, sales_pos: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-forest-green dark:text-gold block">
-                        POS / Counter Billing Access (sales_pos)
-                      </span>
-                      <span className="text-[10px] text-gray-500">Allows offline billing and receipt generation</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-forest-green/5 border border-forest-green/20 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editStaffModal.view_own_sales !== false}
-                      onChange={(e) => setEditStaffModal({ ...editStaffModal, view_own_sales: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-forest-green dark:text-gold block">
-                        View Own Sales History (view_own_sales)
-                      </span>
-                      <span className="text-[10px] text-gray-500">Allows staff to view their daily billed totals</span>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-2 p-2.5 rounded-xl bg-gray-50 dark:bg-dark-bg border border-gray-200 dark:border-dark-border cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editStaffModal.view_customer_info === true}
-                      onChange={(e) => setEditStaffModal({ ...editStaffModal, view_customer_info: e.target.checked })}
-                      className="w-4 h-4 rounded text-forest-green accent-forest-green cursor-pointer"
-                    />
-                    <div>
-                      <span className="font-bold text-gray-700 dark:text-gray-300 block">
-                        View Customer Phone & Contact (view_customer_info)
-                      </span>
-                      <span className="text-[10px] text-gray-400">Restricted permission for customer contact privacy</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEditStaffModal(null)}
-                  className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={editStaffSubmitting || !editStaffModal.name.trim() || editStaffModal.mobile.replace(/\D/g, '').length !== 10}
-                  className="px-6 py-2.5 rounded-xl bg-forest-green hover:bg-deep-green text-gold-light text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 cursor-pointer"
-                >
-                  {editStaffSubmitting ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Reset Staff Credentials Modal */}
-      {resetStaffPassModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-dark-card rounded-3xl border-2 border-gold/40 shadow-2xl max-w-md w-full p-6 sm:p-8 space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-dark-border">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-50 text-amber-700">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="brand-font text-lg font-bold text-forest-green dark:text-gold-light">
-                    Reset POS Credentials
-                  </h3>
-                  <p className="text-xs text-gray-500">Staff: <strong>{resetStaffPassModal.name}</strong></p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setResetStaffPassModal(null)}
-                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-dark-border text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleResetStaffAuth} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1">
-                  New Password / PIN * (Min 6 Characters)
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Enter new credentials"
-                  value={resetStaffPassValue}
-                  onChange={(e) => setResetStaffPassValue(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-bg text-sm focus:outline-none focus:border-gold"
-                />
-              </div>
-
-              <p className="text-xs text-gray-500">
-                Staff member will use this new password along with their registered mobile number (+91 {resetStaffPassModal.mobile}) to log in.
-              </p>
-
-              <div className="pt-4 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setResetStaffPassModal(null)}
-                  className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={resetStaffPassSubmitting || resetStaffPassValue.length < 6}
-                  className="px-6 py-2.5 rounded-xl bg-forest-green hover:bg-deep-green text-gold-light text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 cursor-pointer"
-                >
-                  {resetStaffPassSubmitting ? 'Updating...' : 'Update Credentials'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Revoke / Deactivate Confirmation Modal */}
-      {deleteStaffConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-dark-card rounded-3xl border-2 border-red-500/40 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6">
-            <div className="flex items-center gap-3 pb-4 border-b border-gray-100 dark:border-dark-border">
-              <div className="p-3 rounded-2xl bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="brand-font text-lg font-bold text-red-600 dark:text-red-400">
-                  Revoke Staff POS Access
-                </h3>
-                <p className="text-xs text-gray-500">Staff Member: <strong>{deleteStaffConfirmModal.name}</strong></p>
-              </div>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <p className="text-gray-700 dark:text-gray-300 font-medium">
-                Are you sure you want to revoke access and deactivate POS staff account for <strong className="text-forest-green dark:text-gold">{deleteStaffConfirmModal.name}</strong> (+91 {deleteStaffConfirmModal.mobile})?
-              </p>
-
-              <div className="p-4 rounded-2xl bg-emerald/10 border border-emerald/30 space-y-1">
-                <div className="font-bold text-emerald flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Historical Sales Strictly Preserved:</span>
-                </div>
-                <p className="text-gray-600 dark:text-gray-300 text-[11px]">
-                  All historical sales records, customer invoices, and reporting metrics previously entered by this staff member will remain <strong>100% intact, credited, and auditable</strong> in all business and POS reports.
-                </p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 space-y-1">
-                <div className="font-bold text-red-700 dark:text-red-300 flex items-center gap-1.5">
-                  <Lock className="w-4 h-4 shrink-0" />
-                  <span>Access Immediately Terminated:</span>
-                </div>
-                <p className="text-red-600 dark:text-red-400 text-[11px]">
-                  The account status will be set to Disabled and POS permissions revoked immediately. Future login attempts will return 403 Forbidden.
-                </p>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-100 dark:border-dark-border flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setDeleteStaffConfirmModal(null)}
-                className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-dark-border text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-100 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteStaff}
-                disabled={deletingStaff}
-                className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                {deletingStaff ? 'Revoking...' : 'Revoke POS Access'}
               </button>
             </div>
           </div>

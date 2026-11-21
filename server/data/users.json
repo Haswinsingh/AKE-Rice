@@ -27,7 +27,6 @@
       "feedback": true,
       "admin_management": true,
       "settings": true,
-      "pos_staff_management": true,
       "pos_reports": true,
       "pos_reports_all_staff": true
     }
@@ -59,7 +58,6 @@
       "feedback": true,
       "admin_management": false,
       "settings": false,
-      "pos_staff_management": false,
       "pos_reports": false,
       "pos_reports_all_staff": false
     },
